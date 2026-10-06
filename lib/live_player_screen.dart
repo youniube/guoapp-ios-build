@@ -953,6 +953,27 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
                   ),
                 ),
               ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: IgnorePointer(
+                ignoring: !_controlsVisible,
+                child: ExcludeFocus(
+                  excluding: !_controlsVisible,
+                  child: AnimatedOpacity(
+                    key: const ValueKey('live-controls'),
+                    opacity: _controlsVisible ? 1 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_catchupStart != null) _replayBar(),
+                        _controlBar(),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             if (_error != null)
               Center(
                 child: Container(
@@ -985,27 +1006,6 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
                   ),
                 ),
               ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: IgnorePointer(
-                ignoring: !_controlsVisible,
-                child: ExcludeFocus(
-                  excluding: !_controlsVisible,
-                  child: AnimatedOpacity(
-                    key: const ValueKey('live-controls'),
-                    opacity: _controlsVisible ? 1 : 0,
-                    duration: const Duration(milliseconds: 180),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_catchupStart != null) _replayBar(),
-                        _controlBar(),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),

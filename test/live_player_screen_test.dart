@@ -217,6 +217,8 @@ void main() {
     expect(repository.liveRequests.last.end, replay.end);
     expect(repository.liveRequests.last.automatic, isTrue);
     expect(player.opened.last.start, const Duration(seconds: 45));
+    await tester.tap(find.byKey(const ValueKey('live-gesture-surface')));
+    await settle(tester);
     await tester.tap(find.byTooltip('回到直播'));
     await settle(tester);
     expect(repository.liveRequests.last.start, isNull);

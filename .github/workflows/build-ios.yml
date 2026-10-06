@@ -72,7 +72,7 @@ jobs:
         if: inputs.run_audit
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
-          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true test/python_sources_test.dart test/source_visibility_test.dart test/sources_test.dart test/profiles_test.dart
+          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true test/python_sources_test.dart test/source_visibility_test.dart test/sources_test.dart test/profiles_test.dart test/live_player_screen_test.dart
       - name: Audit all Flutter tests
         if: inputs.run_audit
         continue-on-error: true
