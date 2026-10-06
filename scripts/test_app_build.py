@@ -77,6 +77,7 @@ class AppBuildTests(unittest.TestCase):
                     with mock.patch.object(sys, 'argv', arguments), \
                             mock.patch.dict(os.environ, {'PATH': '/tools'}, clear=True), \
                             mock.patch('shutil.which', return_value='/tools/flutter'), \
+                            mock.patch('platform.system', return_value='Windows'), \
                             mock.patch('subprocess.run') as run:
                         runpy.run_path(str(script), run_name='__main__')
                     calls = [call.args[0] for call in run.call_args_list]

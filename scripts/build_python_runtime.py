@@ -128,7 +128,7 @@ def compile_extensions(key, target, packages, compiler, flags, host, framework=N
     directory = BUILD / ('extensions-' + key)
     directory.mkdir(parents=True, exist_ok=True)
     marker = directory / 'complete.json'
-    expected = {'packages': NATIVE_PACKAGES, 'runtime': list(RUNTIMES['ios' if framework else key]), 'flags': flags}
+    expected = {'recipe': 2, 'packages': NATIVE_PACKAGES, 'runtime': list(RUNTIMES['ios' if framework else key]), 'flags': flags}
     if marker.exists() and json.loads(marker.read_text()) == expected:
         extract(directory / 'packages.zip', packages)
         return
@@ -136,6 +136,9 @@ def compile_extensions(key, target, packages, compiler, flags, host, framework=N
     env = os.environ.copy()
     env.update(CC=compiler, CFLAGS=flags + ' -fPIC -O2', CPPFLAGS=flags,
                LDFLAGS=flags, PKG_CONFIG_PATH=str(prefix / 'lib' / 'pkgconfig'))
+    flag_parts = shlex.split(flags)
+    if '-isysroot' in flag_parts:
+        env['SDKROOT'] = flag_parts[flag_parts.index('-isysroot') + 1]
     if framework:
         env['AR'] = 'ar'
     else:
@@ -191,7 +194,10 @@ def compile_extensions(key, target, packages, compiler, flags, host, framework=N
     env.update(_PYTHON_HOST_PLATFORM=key, PYTHONPATH=str(tools),
                CFLAGS=flags + ' -fPIC -O2 -I' + str(include) + ' -I' + str(prefix / 'include' / 'libxml2'),
                LDSHARED=linker,
-               XML2_CONFIG=str(prefix / 'bin' / 'xml2-config'), XSLT_CONFIG=str(prefix / 'bin' / 'xslt-config'))
+               WITH_XML2_CONFIG=str(prefix / 'bin' / 'xml2-config'), WITH_XSLT_CONFIG=str(prefix / 'bin' / 'xslt-config'),
+               LXML_STATIC_INCLUDE_DIRS=os.pathsep.join(str(prefix / path) for path in ('include', 'include/libxml2')),
+               LXML_STATIC_LIBRARY_DIRS=str(prefix / 'lib'),
+               LXML_STATIC_BINARIES=os.pathsep.join(str(prefix / 'lib' / name) for name in ('libxslt.a', 'libexslt.a', 'libxml2.a')))
     assembled = directory / 'assembled'
     assembled.mkdir(exist_ok=True)
     for name, version in NATIVE_PACKAGES.items():

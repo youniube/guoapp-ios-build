@@ -50,9 +50,9 @@ class PlayerInteractions extends ChangeNotifier {
             .then((value) {
               if (!_disposed) _systemVolumeChanged(value);
             })
-            .catchError(
-              (Object error) => _volumeFailed(error, feedback: false),
-            ),
+            .catchError((Object error) {
+              _volumeFailed(error, feedback: false);
+            }),
       );
     }
   }

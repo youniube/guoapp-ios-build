@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -1802,7 +1801,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                 widget.videoBuilder!(layeredControls)
               else if (_player is LunaExoPlayer)
                 LunaExoVideoView(
-                  player: _player as LunaExoPlayer,
+                  player: _player,
                   fit: BoxFit.contain,
                   controls: (_) => layeredControls,
                 )

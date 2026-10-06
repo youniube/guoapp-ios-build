@@ -2,7 +2,11 @@
 
 > ⚠️ **免责声明**：本项目源码来自网上大名鼎鼎的**鱼佬**（原作者）。我只是把它拿来打包、测试着玩，方便自己用，**不保证任何可用性，随时可能删库**。
 
-Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源请求、解析、下载和播放均在设备上完成，不依赖自建服务。当前源码版本：**0.2.99+106（开发快照，未验收）**。
+Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源请求、解析、下载和播放均在设备上完成，不依赖自建服务。当前源码版本：**0.2.100+107（开发快照，未验收）**。
+
+`0.2.100+107` 按用户要求集中复核 Python 站源导入和现有代码。修复 iOS `lxml` 静态链接输入及目标 SDK 配置，保留每个原生依赖的目标平台编译；修复 Python 网络桥接忽略 `allow_redirects=False`、缓存删除未持久化，以及脚本自定义构造函数未调用基类时缺少会话和缓存的问题。修复 Windows 构建镜像对 CRLF 锁文件不生效及构建测试平台模拟问题，并整理播放器音量失败回调和未使用导入。
+
+Windows 使用实际随包 CPython 3.14.8 完成 6 个 Python 相关测试，其中包含导入、重复导入、分类和分页搜索、详情和多线路、脚本内授权、失败更新回退、成功替换、重启恢复、启停和删除；合成接口同时验证 `requests`、`urllib.request`、`localProxy`、缓存删除、Python 协作超时及 AES／RSA、`lxml`、`pyquery`、`beautifulsoup4` 实际加载。构建脚本测试 17 个通过，2 个因本机没有 CMake 跳过。测试仅使用合成数据和本机 HTTP 服务，未请求站源图片。全量 Go／Flutter 审核和 iOS 原生依赖构建仍在进行，完成结果在下方交付记录更新；Windows 测试结果不代表 iPhone 真机验收。
 
 `0.2.99+106` 增加设备端 Python Spider 站源导入的首版源码实现：管理员可选择 `.py` 文件，导入、替换、启停或删除站源；动态登记接入首页、分类、分页搜索、详情、按分集标题绑定的多线路播放、媒体请求头、本地代理、目录缓存和用户权限。脚本内的 Token、Cookie、签名私钥及授权请求头原样随文件保存和使用，脚本会话按脚本版本保存在设备私有目录；不覆盖内置站源授权。替换失败保留旧脚本和会话，成功替换后失效旧目录缓存并停止相关任务。删除保留收藏、观看记录及已下载文件。
 
@@ -386,6 +390,6 @@ python3 scripts/sync_source.py --check
 
 ## 站源开发约定
 
-站源是 Go 原生 provider（`native/core/provider_*.go`），不是运行期加载的 Python 源。新增站源需接入：`provider_huangguo.go`（常量 / 白名单 / `canonicalProviderSource` / `GetHuangguoChapters`）、`provider_media.go`（baseURL / host 反查 / 播放分派）、`app_categories.go`、`app_cover_metadata.go`、`app_runtime.go`（Config 字段 + 目录 / 搜索 / 详情分派 + 空页放行），并在 `lib/models.dart` 登记 `SourceSite`。
+内置站源是 Go 原生 provider（`native/core/provider_*.go`）；管理员导入的 Python 站源通过 `provider_python.go` 动态登记。新增或维护内置 Go 站源需接入：`provider_huangguo.go`（常量 / 白名单 / `canonicalProviderSource` / `GetHuangguoChapters`）、`provider_media.go`（baseURL / host 反查 / 播放分派）、`app_categories.go`、`app_cover_metadata.go`、`app_runtime.go`（Config 字段 + 目录 / 搜索 / 详情分派 + 空页放行），并在 `lib/models.dart` 登记 `SourceSite`。
 
 注意：Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `(?=...)` 做分段，否则非捕获组会消耗下一段开头；应改用显式字符串截断（从容器标记之后查找下一段标记）。

@@ -100,7 +100,8 @@ def _network(prepared, **kwargs):
         raise ScriptFailure("暂不支持流式上传")
     payload = json.dumps({"url": prepared.url, "method": prepared.method,
                           "headers": dict(prepared.headers),
-                          "body": base64.b64encode(body).decode(), "timeout": timeout}).encode()
+                          "body": base64.b64encode(body).decode(), "timeout": timeout,
+                          "allowRedirects": kwargs.get('allow_redirects', True)}).encode()
     request = urllib.request.Request(_current["network"], data=payload,
                                      headers={"Content-Type": "application/json"})
     try:
@@ -135,6 +136,9 @@ class Spider:
     def __init__(self):
         import requests
         self.session = requests.Session()
+        self._initialize_cache()
+
+    def _initialize_cache(self):
         self._cache_path = os.path.join(_current["storage"], "cache.json")
         self._cache = {}
         try:
@@ -157,6 +161,9 @@ class Spider:
 
     def setCache(self, key, value):
         self._cache[str(key)] = value
+        self._save_cache()
+
+    def _save_cache(self):
         body = json.dumps(self._cache, ensure_ascii=False)
         if len(body.encode()) > 4 * 1024 * 1024:
             raise ScriptFailure("脚本缓存超过 4 MiB")
@@ -167,6 +174,7 @@ class Spider:
 
     def delCache(self, key):
         self._cache.pop(str(key), None)
+        self._save_cache()
 
     def getProxyUrl(self, local=True):
         return _current["proxy"] + '?do=py'
@@ -248,6 +256,12 @@ def _load(request):
         if not inspect.isclass(factory) or factory is Spider:
             raise ScriptFailure("脚本需要定义 Spider 类")
         instance = factory()
+        if isinstance(instance, Spider):
+            if not hasattr(instance, 'session'):
+                import requests
+                instance.session = requests.Session()
+            if not hasattr(instance, '_cache_path'):
+                Spider._initialize_cache(instance)
         for name in ("homeContent", "categoryContent", "detailContent", "playerContent"):
             if not callable(getattr(instance, name, None)):
                 raise ScriptFailure("脚本缺少方法：" + name)

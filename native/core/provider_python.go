@@ -478,11 +478,12 @@ func (d *Downloader) servePythonHTTP(bridge *pythonHTTPBridge, w http.ResponseWr
 	w.Header().Set("Content-Type", "application/json")
 	fail := func(message string) { json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": message}) }
 	var input struct {
-		URL     string            `json:"url"`
-		Method  string            `json:"method"`
-		Headers map[string]string `json:"headers"`
-		Body    string            `json:"body"`
-		Timeout float64           `json:"timeout"`
+		URL            string            `json:"url"`
+		Method         string            `json:"method"`
+		Headers        map[string]string `json:"headers"`
+		Body           string            `json:"body"`
+		Timeout        float64           `json:"timeout"`
+		AllowRedirects *bool             `json:"allowRedirects"`
 	}
 	if json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&input) != nil || !isProviderHTTPMediaURL(input.URL) {
 		fail("脚本 HTTP 请求无效")
@@ -528,6 +529,9 @@ func (d *Downloader) servePythonHTTP(bridge *pythonHTTPBridge, w http.ResponseWr
 	}
 	previousRedirect := client.CheckRedirect
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if input.AllowRedirects != nil && !*input.AllowRedirects {
+			return http.ErrUseLastResponse
+		}
 		if request.Response != nil {
 			collectCookies(request.Response)
 		}
