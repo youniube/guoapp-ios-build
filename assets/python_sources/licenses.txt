@@ -335,16 +335,16 @@ are met:
 1. Redistributions of source code must retain the above copyright
    notice, this list of conditions and the following disclaimer.
 
-2. The origin of this software must not be misrepresented; you must 
-   not claim that you wrote the original software.  If you use this 
-   software in a product, an acknowledgment in the product 
+2. The origin of this software must not be misrepresented; you must
+   not claim that you wrote the original software.  If you use this
+   software in a product, an acknowledgment in the product
    documentation would be appreciated but is not required.
 
 3. Altered source versions must be plainly marked as such, and must
    not be misrepresented as being the original software.
 
-4. The name of the author may not be used to endorse or promote 
-   products derived from this software without specific prior written 
+4. The name of the author may not be used to endorse or promote
+   products derived from this software without specific prior written
    permission.
 
 THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS
@@ -882,15 +882,15 @@ of the rest of the package.
 
 The isoschematron implementation uses several XSL and RelaxNG resources:
  * The (XML syntax) RelaxNG schema for schematron, copyright International
-   Organization for Standardization (see 
+   Organization for Standardization (see
    src/lxml/isoschematron/resources/rng/iso-schematron.rng for the license
    text)
  * The skeleton iso-schematron-xlt1 pure-xslt schematron implementation
    xsl stylesheets, copyright Rick Jelliffe and Academia Sinica Computing
-   Center, Taiwan (see the xsl files here for the license text: 
+   Center, Taiwan (see the xsl files here for the license text:
    src/lxml/isoschematron/resources/xsl/iso-schematron-xslt1/)
  * The xsd/rng schema schematron extraction xsl transformations are unlicensed
-   and copyright the respective authors as noted (see 
+   and copyright the respective authors as noted (see
    src/lxml/isoschematron/resources/xsl/RNG2Schtrn.xsl and
    src/lxml/isoschematron/resources/xsl/XSD2Schtrn.xsl)
 
@@ -1004,7 +1004,7 @@ are permitted provided that the following conditions are met:
 3. Neither the name of Dan Haim nor the names of his contributors may be used
    to endorse or promote products derived from this software without specific
    prior written permission.
-   
+
 THIS SOFTWARE IS PROVIDED BY DAN HAIM "AS IS" AND ANY EXPRESS OR IMPLIED
 WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
 MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO

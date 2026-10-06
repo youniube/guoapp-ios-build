@@ -186,6 +186,7 @@ def compile_extensions(key, target, packages, compiler, flags, host, framework=N
         'sysconfig.get_paths=paths\n'
         'sysconfig.get_path=lambda name,*args,**kwargs: paths(*args,**kwargs)[name]\n'
         'sys.argv[0]="setup.py"\n'
+        'sys.path.insert(0,os.getcwd())\n'
         'runpy.run_path("setup.py",run_name="__main__")\n', encoding='utf-8')
     env.update(_PYTHON_HOST_PLATFORM=key, PYTHONPATH=str(tools),
                CFLAGS=flags + ' -fPIC -O2 -I' + str(include) + ' -I' + str(prefix / 'include' / 'libxml2'),
