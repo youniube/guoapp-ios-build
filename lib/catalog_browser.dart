@@ -51,6 +51,12 @@ class CatalogBrowser {
     return repository.cancelCatalog();
   }
 
+  void invalidateSource(String source) {
+    _library.remove(source);
+    _sessions.clear();
+    _generation++;
+  }
+
   void _remember(String source, Iterable<Drama> items) {
     final library = _library.putIfAbsent(source, () => {});
     for (final drama in items) {

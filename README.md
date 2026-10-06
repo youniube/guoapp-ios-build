@@ -2,7 +2,11 @@
 
 > ⚠️ **免责声明**：本项目源码来自网上大名鼎鼎的**鱼佬**（原作者）。我只是把它拿来打包、测试着玩，方便自己用，**不保证任何可用性，随时可能删库**。
 
-Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源请求、解析、下载和播放均在设备上完成，不依赖自建服务。当前源码版本：**0.2.98+105（开发快照，未验收）**。
+Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源请求、解析、下载和播放均在设备上完成，不依赖自建服务。当前源码版本：**0.2.99+106（开发快照，未验收）**。
+
+`0.2.99+106` 增加设备端 Python Spider 站源导入的首版源码实现：管理员可选择 `.py` 文件，导入、替换、启停或删除站源；动态登记接入首页、分类、分页搜索、详情、按分集标题绑定的多线路播放、媒体请求头、本地代理、目录缓存和用户权限。脚本内的 Token、Cookie、签名私钥及授权请求头原样随文件保存和使用，脚本会话按脚本版本保存在设备私有目录；不覆盖内置站源授权。替换失败保留旧脚本和会话，成功替换后失效旧目录缓存并停止相关任务。删除保留收藏、观看记录及已下载文件。
+
+本轮已准备并校验 Windows CPython 3.14.8 和固定依赖资源，Windows 全站源 Go 核心 DLL 编译通过，核心与桥接 `go build`、`go vet`、Go 测试源码编译、修改 Dart 文件静态分析和格式检查、Python 源码语法检查通过；测试源码仅编译，未运行。已加入 Android / iOS 的运行时准备、原生依赖交叉编译及打包流程；当前主机为 Windows，尚未完成 Android / iOS 原生依赖构建、Flutter 整包构建或三平台设备端执行和播放验收，不将源码入口、下载资源或核心 DLL 等同于可用安装包。按项目约定未启动自动化测试、回归或真实站源请求，未读取站源图片。
 
 `0.2.98+105` 对照原多源短剧脚本修复五五、牛牛短剧、七星、薏米、星芽、山海及蝙蝠视频，并将原黄豆平台密钥、请求头、榜单和播放流程迁入现有黄豆接口。修复剧集数组被文本取值函数丢弃、薏米 `p35` 查询串重编码导致 RSA 签名失效、蝙蝠解码标题仍留在 script 标签内、五五“全部”分类路径不符及播放线路选择偏差。恢复原登录设备参数、请求头、原始签名查询串及牛牛 CSJ 的 AES / HMAC / 访客授权流程，牛牛只对已核对的接口域名使用同站有效证书名称，保留证书链和有效期检查；按原脚本区分其普通线路和 CSJ 线路的媒体 User-Agent，避免额外 Referer 导致 403。黄豆使用内置平台密钥，并按原脚本尝试有效的备用免费清单，试看仍不当作正片。删除短剧one、黄瓜、2048、香蕉、橙果、黄豆2、51短剧、野果专线、搜剧AI、酷我、悟圣、星星、大芒、百度、小宝影院，共保留 60 个底层站源、58 个分组；移除旧权限时保留其他用户配置及备份记录。
 
@@ -315,6 +319,20 @@ flutter run
 
 播放器使用 [media_kit](https://github.com/media-kit/media-kit) / libmpv，合并和导出使用 [FFmpegKit min-gpl](https://github.com/sk3llo/ffmpeg_kit_flutter)（含 GPL 媒体组件）。FFmpegKit 不参与正常播放或下载的转码。
 
+### Python 站源导入（开发快照）
+
+管理员在「设置 → 站源管理 → 导入 Python 站源」选择不超过 512 KiB 的本地 `.py` 单文件。首次导入提示脚本会在设备上执行；请仅使用可信来源。应用无需另装 Python，不依赖自建服务，也不在运行时执行 `pip install`。新站源默认仅管理员可访问，其他用户需要由管理员分配站源权限；管理卡片支持替换脚本、启停及删除。
+
+兼容目标是定义 `Spider` 类、使用 `base.spider` 风格接口的站源。首版适配 `init`、`getName`、`homeContent`、`homeVideoContent`、`categoryContent`、`searchContent`、`detailContent`、`playerContent` 和 `localProxy`；目录、详情及播放接受字典或 JSON 对象字符串。内置 `requests`、`beautifulsoup4`、`lxml`、`pyquery`、`pycryptodome` 和必要依赖，版本固定在 `scripts/build_python_runtime.py`。`requests`、`urllib.request.urlopen` 和基类请求通过设备端 Go 网络桥接，遵循应用网络设置和请求间隔；自定义网络客户端及自行建立的 socket 不在该桥接的兼容保证内。
+
+脚本中的 Token、Cookie、签名私钥等原始数据随整个文件导入；脚本自行登录或刷新取得的会话可以在私有缓存中保存。外部授权文件、环境变量、额外 Python 模块不会因选择一个 `.py` 而自动迁入。授权写死且过期时，需要替换为包含新授权的脚本，无需重新构建应用；新增未内置依赖则需要更新运行环境安装包。用户脚本及会话不包含在普通配置备份和源码导出中。设备私有目录提供系统访问隔离，并不使脚本内密钥不可提取。
+
+导入成功表示脚本语法、直接依赖、初始化和分类结构检查成功，不代表源站授权或播放已验证。依赖外部程序、浏览器自动化、额外网页解析、付费或失效授权的脚本可能不能直接使用。脚本执行处于应用进程内，只提供 Python 代码和网络操作的协作超时／取消，不能强制打断任意原生扩展，也不视为安全沙箱。`native/core/testdata/python_spider_fixture.py` 为不含真实授权、不请求图片的合成示例，其媒体域名为占位域名，不能作为真实播放源。
+
+构建脚本自动准备 Python：Windows 使用官方嵌入包和 wheel；Android 使用官方 `arm64-v8a` / `x86_64` 运行时，脚本导入版不生成 `armeabi-v7a`；iOS 使用 BeeWare CPython 3.14.8 XCFramework，并将扩展模块转换为随包框架。Android 依赖交叉编译需要 Linux/macOS、NDK 和 `make`；iOS 需要 macOS、完整 Xcode 和 `make`，继续采用 IPA 自行签名安装。手工 iOS 调试在 `--core-only` 之后，还需执行 `python3 scripts/build_python_runtime.py --platform ios`；模拟器另加 `--simulator`。下载按 SHA-256 校验，运行时产物位于被源码同步排除的构建目录；许可汇总见 `assets/python_sources/licenses.txt`。
+
+集中验收时，三平台均需完成导入、重启恢复、分类／分页搜索、详情、多线路和带请求头播放，以及缺少依赖、脚本错误、重复导入、失败更新回退、用户权限、启停和删除验证。目前上述设备行为均未验收。
+
 ### 构建内置黄果旧版共享会话
 
 用户要求通用 IPA 内置同一访客会话时，macOS 构建使用 `python3 scripts/build_ios.py --all-sources --legacy-session /本机私有路径/huangguo-session.json --require-legacy-session`。输入必须是有效的会话文件，包含 `version`、`scope`、`deviceId` 和非空 `token`；旧 App 的普通配置备份或 IPA 本身不包含该文件。真实会话保存在源码树以外，不提交 Git，不纳入纯源码镜像和快照。
@@ -362,7 +380,7 @@ python3 scripts/sync_source.py --check
 | `lib` | 页面、播放器、本地用户、FFI、下载和媒体处理 |
 | `native/core`、`native/bridge` | 独立站源核心、缓存、下载、目录迁移及 C ABI |
 | `android`、`windows`、`ios` | 平台工程与必要资源 |
-| `assets/video_enhancement`、`packages/media_kit_libs_windows_video` | 增强 Shader 与许可、固定 Windows 媒体依赖插件 |
+| `assets/video_enhancement`、`assets/python_sources`、`packages/media_kit_libs_windows_video` | 增强 Shader、Python Spider 兼容层与许可、固定 Windows 媒体依赖插件 |
 | `scripts`、`.github/workflows` | 构建、签名、验证、同步和版本快照 |
 | `test`、`integration_test` | 自动化与设备回归 |
 

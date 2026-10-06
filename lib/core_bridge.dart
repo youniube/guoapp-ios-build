@@ -18,6 +18,7 @@ import 'source_status.dart';
 import 'ranking_models.dart';
 import 'cover_decoder.dart';
 import 'catalog_updates.dart';
+import 'python_sources.dart';
 import 'download_collections.dart';
 import 'resource_settings.dart';
 
@@ -124,6 +125,17 @@ abstract class AppRepository {
     String source, {
     bool force = false,
   }) async => const [CatalogCategory.all];
+  String get pythonSourceWarning => '';
+  Future<List<PythonSourceInfo>> pythonSources() async => [];
+  Future<List<PythonSourceInfo>> importPythonSource(
+    String filename,
+    List<int> bytes, {
+    String source = '',
+  }) async => throw AppFailure('当前环境不支持 Python 站源');
+  Future<List<PythonSourceInfo>> managePythonSource(
+    String source,
+    String command,
+  ) async => throw AppFailure('当前环境不支持 Python 站源');
   bool get supportsSourceManagement => false;
   Future<SourceStatus> sourceStatus(String source) async =>
       SourceStatus.fromJson({'source': source});
@@ -201,6 +213,79 @@ abstract class AppRepository {
 }
 
 class NativeRepository extends AppRepository {
+  String _pythonSourceWarning = '';
+  @override
+  String get pythonSourceWarning => _pythonSourceWarning;
+  void _pythonManagementPermission() {
+    if (access == null || access!.locked || !access!.profile.admin) {
+      throw AppFailure('仅已解锁的管理员可管理 Python 站源');
+    }
+  }
+
+  List<PythonSourceInfo> _pythonSourceResult(Map<String, dynamic> result) {
+    _pythonSourceWarning = result['warning'] as String? ?? '';
+    final items = [
+      for (final row in result['items'] as List? ?? [])
+        PythonSourceInfo.fromJson(Map<String, dynamic>.from(row as Map)),
+    ];
+    String signature(List<PythonSourceInfo> values) => jsonEncode([
+      for (final source in values)
+        [
+          source.id,
+          source.name,
+          source.filename,
+          source.revision,
+          source.enabled,
+          source.search,
+        ],
+    ]);
+    final changed = signature(SourceSite.pythonSources) != signature(items);
+    SourceSite.pythonSources = items;
+    if (changed) access?.refreshSources();
+    return items;
+  }
+
+  @override
+  Future<List<PythonSourceInfo>> pythonSources() async {
+    _pythonManagementPermission();
+    return _pythonSourceResult(await _call({'action': 'pythonSources'}));
+  }
+
+  @override
+  Future<List<PythonSourceInfo>> importPythonSource(
+    String filename,
+    List<int> bytes, {
+    String source = '',
+  }) async {
+    _pythonManagementPermission();
+    if (bytes.isEmpty || bytes.length > 512 * 1024) {
+      throw AppFailure('请选择不超过 512 KiB 的 .py 文件');
+    }
+    return _pythonSourceResult(
+      await _call({
+        'action': 'importPythonSource',
+        'source': source,
+        'filename': filename,
+        'scriptBody': base64Encode(bytes),
+      }),
+    );
+  }
+
+  @override
+  Future<List<PythonSourceInfo>> managePythonSource(
+    String source,
+    String command,
+  ) async {
+    _pythonManagementPermission();
+    return _pythonSourceResult(
+      await _call({
+        'action': 'managePythonSource',
+        'source': source,
+        'command': command,
+      }),
+    );
+  }
+
   @override
   Future<List<LiveChannel>> liveChannels() async {
     if (!allSourcesEnabled) throw AppFailure('当前版本不包含直播');
@@ -557,6 +642,7 @@ class NativeRepository extends AppRepository {
       final unrestricted =
           {
             'initialize',
+            'pythonSources',
             'release',
             'releaseLive',
             'cancelPlayback',
@@ -571,6 +657,9 @@ class NativeRepository extends AppRepository {
                 'cancel',
                 'disconnect',
               }.contains(input['command']);
+      if ({'importPythonSource', 'managePythonSource'}.contains(action)) {
+        _pythonManagementPermission();
+      }
       final epoch = access?.profileEpoch;
       if (!unrestricted && access?.locked == true) throw AppFailure('请先解锁当前用户');
       if (action == 'rankings') {
@@ -654,7 +743,7 @@ class NativeRepository extends AppRepository {
         if (action == 'workLease' && input['command'] == 'start') {
           await workLease(input['jobId'] as String, 'end');
         }
-        throw AppFailure('用户已切换，请重新操作');
+        throw AppFailure('用户权限或站源已改变，请重新操作');
       }
       return data is Map ? Map<String, dynamic>.from(data) : {};
     } on AppFailure {
@@ -692,10 +781,12 @@ class NativeRepository extends AppRepository {
     final build = await _call({
       'action': 'initialize',
       'directory': directory.path,
+      'python': await pythonRuntimeConfiguration(),
     });
     if (build['allSources'] != allSourcesEnabled) {
       throw AppFailure('应用与原生核心的站源版本不一致，请使用完整安装包重新安装');
     }
+    _pythonSourceResult(await _call({'action': 'pythonSources'}));
     if (!background) await BackgroundDownloads.prepare();
     if (!background) {
       SystemProxyMonitor.start((value) async {

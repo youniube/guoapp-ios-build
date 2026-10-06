@@ -33,6 +33,9 @@ func nativeCatalogKey(source, category string) string {
 }
 
 func validNativeCategory(source, category string) bool {
+	if isPythonSourceID(source) {
+		return len(category) <= 512 && !strings.ContainsAny(category, "|\x00\r\n")
+	}
 	if category == "" {
 		return true
 	}
@@ -83,6 +86,22 @@ func validNativeCategory(source, category string) bool {
 func (engine *nativeEngine) nativeCategories(ctx context.Context, source string, force bool) ([]nativeCategory, error) {
 	source = canonicalProviderSource(source)
 	all := []nativeCategory{{Name: "全部"}}
+	if isPythonSourceID(source) {
+		result, err := engine.downloader.pythonSourceCall(ctx, source, "categories", nil)
+		if err != nil {
+			return nil, err
+		}
+		rows, _ := result["categories"].([]any)
+		for _, raw := range rows {
+			if row, ok := raw.(map[string]any); ok {
+				id, name := nativeText(row["type_id"]), nativeText(row["type_name"])
+				if id != "" && name != "" && validNativeCategory(source, id) {
+					all = append(all, nativeCategory{ID: id, Name: name})
+				}
+			}
+		}
+		return all, nil
+	}
 	switch source {
 	case sourceHongguo:
 		for _, genre := range hongguoAppGenres {

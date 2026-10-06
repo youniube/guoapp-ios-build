@@ -12,6 +12,7 @@ import sys
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from build_python_runtime import prepare_ios
 
 from app_build import BuildVariant, add_variant_argument, source_access_flags
 
@@ -136,6 +137,7 @@ def main():
     build_core(options.simulator, variant, session_flags + access_flags)
     if options.core_only:
         return
+    prepare_ios(options.simulator)
     flutter = shutil.which('flutter')
     if not flutter or not shutil.which('pod'):
         raise SystemExit('请安装 Flutter 和 CocoaPods。')

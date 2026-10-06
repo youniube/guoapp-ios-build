@@ -84,7 +84,13 @@ func providerChapterID(source, sourceID, chapterKey string) string {
 }
 
 func splitProviderDramaID(id string) (source, sourceID string, ok bool) {
-	source, sourceID, ok = strings.Cut(strings.TrimSpace(id), ":")
+	id = strings.TrimSpace(id)
+	if strings.HasPrefix(id, "py:") {
+		key, rest, valid := strings.Cut(strings.TrimPrefix(id, "py:"), ":")
+		source, sourceID, ok = "py:"+key, rest, valid
+	} else {
+		source, sourceID, ok = strings.Cut(id, ":")
+	}
 	source = canonicalProviderSource(source)
 	if !ok || strings.TrimSpace(sourceID) == "" || !isHuangguoProviderSource(source) {
 		return "", "", false
@@ -97,7 +103,7 @@ func isHuangguoProviderSource(source string) bool {
 	case sourceHuangguoAI, sourceHuangguoVideo, sourceHuangdou, sourceHongguo, sourceHuangju, sourceYeguo, sourceDSD, sourceCloudFront, sourceSorani, sourceGuipian, sourceHanxiaoquan, sourceXifu:
 		return true
 	default:
-		return isMaccmsSource(source) || isAttachedSource(source)
+		return isPythonSourceID(source) || isMaccmsSource(source) || isAttachedSource(source)
 	}
 }
 
@@ -236,6 +242,10 @@ func valueEmpty(v any) bool {
 }
 
 func (d *Downloader) GetHuangguoChapters(ctx context.Context, source, sourceID string) (string, []Chapter, error) {
+	if isPythonSourceID(source) {
+		drama, chapters, err := d.fetchPythonDetail(ctx, source, sourceID)
+		return drama.Title, chapters, err
+	}
 	switch canonicalProviderSource(source) {
 	case sourceHuangguoAI:
 		return d.fetchHuangguoAIChapters(ctx, sourceID)

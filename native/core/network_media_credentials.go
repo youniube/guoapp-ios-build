@@ -10,6 +10,7 @@ import (
 )
 
 type providerMediaCredentials struct {
+	headers   map[string]string
 	cookie    string
 	origin    string
 	referer   string
@@ -36,6 +37,9 @@ func providerMediaOrigin(address *url.URL) string {
 }
 
 func (credentials *providerMediaCredentials) apply(request *http.Request) error {
+	for key := range credentials.headers {
+		request.Header.Del(key)
+	}
 	request.Header.Del("Cookie")
 	if credentials.userAgent != "" {
 		request.Header.Set("User-Agent", credentials.userAgent)
@@ -49,6 +53,9 @@ func (credentials *providerMediaCredentials) apply(request *http.Request) error 
 	if providerMediaOrigin(request.URL) == credentials.origin {
 		if !credentials.expires.IsZero() && !time.Now().Before(credentials.expires) {
 			return errors.New("播放凭证已过期，请重新解析播放")
+		}
+		for key, value := range credentials.headers {
+			request.Header.Set(key, value)
 		}
 		request.Header.Set("Cookie", credentials.cookie)
 	}

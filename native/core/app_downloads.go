@@ -128,7 +128,7 @@ func (manager *nativeDownloads) load() error {
 			return errors.New("下载记录条目无效，原索引和文件已保留")
 		}
 		seen[record.ID] = true
-		if record.Folder != "" && record.Folder != record.Drama.Source+"/"+record.ID {
+		if record.Folder != "" && record.Folder != pythonSourceFolder(record.Drama.Source)+"/"+record.ID {
 			return errors.New("下载目录记录无效，原文件已保留")
 		}
 		if record.File != "" && record.File != "media.mp4" && record.File != "index.m3u8" {
@@ -308,7 +308,7 @@ func (manager *nativeDownloads) enqueueContext(ctx context.Context, input native
 			ID: id, Drama: input.Drama, Chapter: entry.Chapter, Index: entry.Index,
 			Quality: input.Quality, State: "queued", Created: time.Now().UnixMilli()}}
 		if manager.bySource {
-			manager.jobs[id].Folder = input.Drama.Source + "/" + id
+			manager.jobs[id].Folder = pythonSourceFolder(input.Drama.Source) + "/" + id
 		}
 		added = append(added, id)
 		tasks++

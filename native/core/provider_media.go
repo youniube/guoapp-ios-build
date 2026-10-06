@@ -10,15 +10,16 @@ import (
 )
 
 type providerMedia struct {
-	credentials *providerMediaCredentials
-	URL         string
-	Referer     string
-	Duration    time.Duration
-	Playlist    string
-	HLSKey      []byte
-	CENCKey     []byte
-	Quality     int
-	Variants    []providerMedia
+	pythonSource string
+	credentials  *providerMediaCredentials
+	URL          string
+	Referer      string
+	Duration     time.Duration
+	Playlist     string
+	HLSKey       []byte
+	CENCKey      []byte
+	Quality      int
+	Variants     []providerMedia
 }
 
 func (d *Downloader) providerBaseURL(source string) string {
@@ -142,6 +143,9 @@ func (d *Downloader) resolveProviderMedia(ctx context.Context, task Task) (provi
 	chapter.Source = canonicalProviderSource(chapter.Source)
 	if chapter.Source == "" {
 		chapter.Source = sourceFromDramaID(task.DramaID)
+	}
+	if isPythonSourceID(chapter.Source) {
+		return d.resolvePythonMedia(ctx, task)
 	}
 	if chapter.Source == sourceCloudFront {
 		return d.resolveLegacyMedia(ctx, task)

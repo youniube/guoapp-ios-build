@@ -4,6 +4,7 @@ import platform
 import shutil
 import subprocess
 from pathlib import Path
+from build_python_runtime import prepare_windows, prepare_android
 
 from app_build import BuildVariant, add_variant_argument, source_access_flags
 
@@ -45,6 +46,7 @@ def build(goos, architecture, compiler, output, extra=None):
         raise SystemExit(f'原生核心编译失败，退出码 {result.returncode}；授权配置已隐藏。')
 
 if options.platform == 'android':
+    prepare_android(options.abi or ['arm64-v8a', 'x86_64'])
     sdk = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
     if not sdk:
         raise SystemExit('请设置 ANDROID_HOME 为 Android SDK 目录。')
@@ -56,7 +58,7 @@ if options.platform == 'android':
         'armeabi-v7a': ('arm', 'armv7a-linux-androideabi26-clang'),
         'x86_64': ('amd64', 'x86_64-linux-android26-clang'),
     }
-    for abi in options.abi or list(mappings):
+    for abi in options.abi or ['arm64-v8a', 'x86_64']:
         architecture, name = mappings[abi]
         compiler = compilers / (name + ('.cmd' if platform.system() == 'Windows' else ''))
         if not compiler.exists():
@@ -67,6 +69,7 @@ if options.platform == 'android':
             extra['GOARM'] = '7'
         build('android', architecture, compiler, output, extra)
 elif options.platform == 'windows':
+    prepare_windows()
     compiler = shutil.which('x86_64-w64-mingw32-gcc') or (shutil.which('gcc') if platform.system() == 'Windows' else None)
     if not compiler:
         raise SystemExit('请安装 MinGW-w64，并将其 bin 目录加入 PATH。')

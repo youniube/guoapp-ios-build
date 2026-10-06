@@ -26,6 +26,43 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    @Synchronized
+    @Suppress("DEPRECATION")
+    private fun preparePythonRuntime(): Map<String, Any> {
+        val abi = Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" || it == "x86_64" }
+            ?: throw IllegalStateException("Unsupported Python ABI")
+        val home = java.io.File(filesDir, "python-runtime")
+        val marker = java.io.File(home, "installed-version")
+        val info = packageManager.getPackageInfo(packageName, 0)
+        val build = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+        val version = build.toString() + ":" + abi
+        if (!marker.isFile || marker.readText() != version) {
+            val temporary = java.io.File(filesDir, "python-runtime-preparing")
+            require(temporary.canonicalFile.parentFile == filesDir.canonicalFile)
+            if (temporary.exists()) temporary.deleteRecursively()
+            temporary.mkdirs()
+            java.util.zip.ZipInputStream(assets.open("python-runtime/$abi.zip")).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    val target = java.io.File(temporary, entry.name)
+                    require(target.canonicalPath.startsWith(temporary.canonicalPath + java.io.File.separator))
+                    if (entry.isDirectory) target.mkdirs() else {
+                        target.parentFile?.mkdirs()
+                        target.outputStream().use { output -> zip.copyTo(output) }
+                    }
+                    zip.closeEntry()
+                    entry = zip.nextEntry
+                }
+            }
+            java.io.File(temporary, "installed-version").writeText(version)
+            require(home.canonicalFile.parentFile == filesDir.canonicalFile)
+            if (home.exists()) home.deleteRecursively()
+            check(temporary.renameTo(home))
+        }
+        return mapOf("home" to home.absolutePath, "library" to java.io.File(applicationInfo.nativeLibraryDir, "libpython3.14.so").absolutePath,
+            "search" to listOf(home.absolutePath, java.io.File(home, "lib/python3.14").absolutePath, java.io.File(home, "lib/python3.14/lib-dynload").absolutePath, java.io.File(home, "lib/python3.14/site-packages").absolutePath))
+    }
+
     private var headroomReadAt = 0L
     private var thermalHeadroom: Double? = null
     private var deviceChannel: MethodChannel? = null
@@ -122,6 +159,16 @@ class MainActivity : FlutterActivity() {
             .also { channel ->
                 channel.setMethodCallHandler { call, result ->
                     when (call.method) {
+                        "pythonRuntime" -> {
+                            Thread {
+                                try {
+                                    val configuration = preparePythonRuntime()
+                                    runOnUiThread { result.success(configuration) }
+                                } catch (_: Exception) {
+                                    runOnUiThread { result.error("python_runtime", "Python 运行环境解包失败，请重新安装完整安装包", null) }
+                                }
+                            }.start()
+                        }
                         "deviceInfo" -> {
                             val version = packageManager.getPackageInfo(packageName, 0).versionName
                             result.success(mapOf("television" to isTelevisionDevice(), "version" to version))

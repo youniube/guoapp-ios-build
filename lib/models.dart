@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'app_build.dart';
+import 'python_sources.dart';
 
 class SourceSite {
   const SourceSite(this.id, this.name, this.description);
@@ -8,7 +9,14 @@ class SourceSite {
   final String name;
   final String description;
   bool get onlineSearch => id == 'hongguo' || pagedSearch;
+  bool get python => id.startsWith('py:');
+  String get revision =>
+      pythonSources.where((source) => source.id == id).firstOrNull?.revision ??
+      '';
+  String get identity => '$id:$name:$revision';
   bool get pagedSearch =>
+      python &&
+          pythonSources.any((source) => source.id == id && source.search) ||
       id == 'huangju' ||
       id == 'yeguo' ||
       id == 'dsd' ||
@@ -124,9 +132,16 @@ class SourceSite {
     SourceSite('xifu', '喜福', '分类短剧'),
     ...attachedValues,
   ];
-  static const values = allSourcesEnabled ? allValues : [hongguo];
+  static List<PythonSourceInfo> pythonSources = [];
+  static List<SourceSite> get values => [
+    ...(allSourcesEnabled ? allValues : [hongguo]),
+    for (final source in pythonSources)
+      if (source.enabled) SourceSite(source.id, source.name, 'Python 导入站源'),
+  ];
   static bool isAvailable(String id) => values.any((site) => site.id == id);
-  static bool isKnown(String id) => allValues.any((site) => site.id == id);
+  static bool isKnown(String id) =>
+      allValues.any((site) => site.id == id) ||
+      RegExp(r'^py:[a-f0-9]{32}$').hasMatch(id);
   static bool isRetired(String id) => const {
     'xiaopingguo',
     'hongdou',
@@ -146,8 +161,17 @@ class SourceSite {
     'xingxing',
     'yeguo-worker',
   }.contains(id);
-  static SourceSite byId(String id) =>
-      allValues.firstWhere((site) => site.id == id, orElse: () => hongguo);
+  static SourceSite byId(String id) {
+    for (final source in pythonSources) {
+      if (source.id == id) return SourceSite(id, source.name, 'Python 导入站源');
+    }
+    return allValues.firstWhere(
+      (site) => site.id == id,
+      orElse: () => id.startsWith('py:')
+          ? SourceSite(id, '已移除的 Python 站源', '来源不可用')
+          : hongguo,
+    );
+  }
 }
 
 class SourceGroup {

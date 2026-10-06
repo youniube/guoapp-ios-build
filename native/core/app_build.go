@@ -8,6 +8,9 @@ var errNativeBuildSource = errors.New("当前版本不包含此站源")
 
 func nativeSourceAvailable(source string) bool {
 	source = canonicalProviderSource(source)
+	if isPythonSourceID(source) {
+		return pythonSourceRegistered(source, true)
+	}
 	return source == sourceHongguo || buildAllSources == "true" && isHuangguoProviderSource(source)
 }
 
