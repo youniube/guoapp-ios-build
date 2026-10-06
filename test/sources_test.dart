@@ -216,7 +216,7 @@ void main() {
         expect(repository.operations, ['hongguo:$operation']);
         expect(sample, findsOneWidget);
         await tester.ensureVisible(toggle);
-        await tester.pumpAndSettle();
+        await tester.pump();
         await tester.tap(toggle);
         await tester.pump();
         expect(sample, findsNothing);
@@ -317,7 +317,7 @@ void main() {
       expect(find.textContaining('HTTP 403'), findsNothing);
       final toggle = find.byKey(const ValueKey('health-toggle-hongguo'));
       await tester.ensureVisible(toggle);
-      await tester.pumpAndSettle();
+      await tester.pump();
       await tester.tap(toggle);
       await tester.pumpAndSettle();
       expect(find.textContaining('HTTP 403'), findsOneWidget);
