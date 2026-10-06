@@ -136,6 +136,8 @@ void main() {
         'tv-player-episodes',
       );
       await press(tester, LogicalKeyboardKey.select);
+      await tester.pump(const Duration(milliseconds: 250));
+      await settle(tester);
       expect(FocusManager.instance.primaryFocus?.debugLabel, 'remote-71');
       await tester.pump(const Duration(seconds: 6));
       await settle(tester);

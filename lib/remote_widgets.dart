@@ -276,6 +276,7 @@ class _RemoteGridState extends State<RemoteGrid> {
     if (key == LogicalKeyboardKey.arrowDown) {
       final lastRow = (widget.itemKeys.length - 1) ~/ widget.columns;
       if (index ~/ widget.columns == lastRow) {
+        if (widget.footer != null) return KeyEventResult.ignored;
         if (_scroll.hasClients &&
             _scroll.offset < _scroll.position.maxScrollExtent - 1.0) {
           _scroll.animateTo(
