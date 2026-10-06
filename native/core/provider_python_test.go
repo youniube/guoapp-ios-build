@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,6 +24,27 @@ func TestPythonSourceIDsAndWindowsFolders(t *testing.T) {
 	}
 	if isPythonSourceID("py:../../outside") {
 		t.Fatal("unsafe source ID accepted")
+	}
+}
+
+func TestPythonLANSourceRangeAllowsRegisteredSources(t *testing.T) {
+	pythonSources.Lock()
+	previous := pythonSources.entries
+	pythonSources.entries = map[string]pythonSource{}
+	config := nativeLANConfig{Name: "Synthetic", Account: strings.Repeat("a", 32), Kind: "computer", Sources: []string{sourceHongguo}}
+	for index := range 100 {
+		source := fmt.Sprintf("py:%032x", index)
+		pythonSources.entries[source] = pythonSource{ID: source, Enabled: true}
+		config.Sources = append(config.Sources, source)
+	}
+	pythonSources.Unlock()
+	defer func() { pythonSources.Lock(); pythonSources.entries = previous; pythonSources.Unlock() }()
+	if err := nativeLANValidateConfig(config); err != nil {
+		t.Fatal("registered source range was rejected", err)
+	}
+	config.Sources = append(config.Sources, "py:"+strings.Repeat("f", 32))
+	if err := nativeLANValidateConfig(config); err == nil {
+		t.Fatal("unregistered Python source was advertised")
 	}
 }
 

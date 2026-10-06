@@ -89,11 +89,10 @@ const lanLegacySources = {
 };
 
 Set<String> lanSources(Object? value, {bool advertised = false}) {
-  if (value is! List ||
-      value.length > (advertised ? 32 : SourceSite.allValues.length)) {
+  if (value is! List || value.length > 256) {
     throw const FormatException('设备站源范围无效');
   }
-  final result = value.map((source) => lanText(source, 32)).toSet();
+  final result = value.map((source) => lanText(source, 64)).toSet();
   if (advertised) {
     return result.where(SourceSite.isKnown).toSet();
   }

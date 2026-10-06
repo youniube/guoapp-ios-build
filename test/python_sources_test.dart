@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:duanju_app/core_bridge.dart';
+import 'package:duanju_app/lan_models.dart';
 import 'package:duanju_app/local_profiles.dart';
 import 'package:duanju_app/models.dart';
 import 'package:duanju_app/python_sources.dart';
@@ -47,6 +48,10 @@ void main() {
     final store = testStore(await SharedPreferences.getInstance());
     addTearDown(store.dispose);
     expect(store.allowsSource(source), isTrue);
+    expect(
+      lanSources([...SourceSite.allValues.map((site) => site.id), source]),
+      contains(source),
+    );
     expect(SourceSite.byId(source).pagedSearch, isTrue);
     await store.switchProfile('viewer');
     expect(store.allowsSource(source), isFalse);

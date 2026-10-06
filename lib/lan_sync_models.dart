@@ -179,7 +179,7 @@ class LanCell {
 
 Drama lanDrama(Object? input) {
   final row = lanMap(input);
-  final source = lanText(row['source'], 32);
+  final source = lanText(row['source'], 64);
   if (!SourceSite.isKnown(source) && !SourceSite.isRetired(source)) {
     throw const FormatException('记录站源无效');
   }

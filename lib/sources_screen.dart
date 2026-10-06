@@ -327,12 +327,13 @@ class _SourcesScreenState extends State<SourcesScreen> {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.store,
     builder: (context, _) {
-      final sources = widget.store.sources.toList()
-        ..sort((a, b) {
-          final aFirst = a.id == widget.initialSource ? 0 : 1;
-          final bFirst = b.id == widget.initialSource ? 0 : 1;
-          return aFirst.compareTo(bFirst);
-        });
+      final sources = widget.store.sources.toList();
+      final initialIndex = sources.indexWhere(
+        (source) => source.id == widget.initialSource,
+      );
+      if (initialIndex > 0) {
+        sources.insert(0, sources.removeAt(initialIndex));
+      }
       final viewPaddingBottom = MediaQuery.viewPaddingOf(context).bottom;
       final paddingBottom = MediaQuery.paddingOf(context).bottom;
       final bottomInset = viewPaddingBottom > paddingBottom
