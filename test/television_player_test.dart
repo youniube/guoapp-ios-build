@@ -150,7 +150,19 @@ void main() {
         'tv-player-episodes',
       );
       expect(repository.active.length, 1);
-      await press(tester, LogicalKeyboardKey.arrowRight);
+      for (
+        var step = 0;
+        step < 3 &&
+            FocusManager.instance.primaryFocus?.debugLabel !=
+                'tv-player-settings';
+        step++
+      ) {
+        await press(tester, LogicalKeyboardKey.arrowRight);
+      }
+      expect(
+        FocusManager.instance.primaryFocus?.debugLabel,
+        'tv-player-settings',
+      );
       await press(tester, LogicalKeyboardKey.select);
       expect(find.text('倍速'), findsOneWidget);
       await press(tester, LogicalKeyboardKey.arrowRight);
