@@ -212,6 +212,7 @@ class _RemoteGridState extends State<RemoteGrid> {
     final generation = ++_generation;
     _target = widget.itemKeys[index];
     final node = _node(index);
+    Future<void>? scrolling;
 
     if (_scroll.hasClients) {
       final row = index ~/ widget.columns;
@@ -239,7 +240,7 @@ class _RemoteGridState extends State<RemoteGrid> {
           _scroll.position.maxScrollExtent,
         );
         if ((clamped - currentOffset).abs() > 1.0) {
-          _scroll.animateTo(
+          scrolling = _scroll.animateTo(
             clamped,
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOutCubic,
@@ -248,17 +249,17 @@ class _RemoteGridState extends State<RemoteGrid> {
       }
     }
 
-    if (node.context != null) {
-      node.requestFocus();
-      _target = null;
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && generation == _generation && node.context != null) {
-          node.requestFocus();
-          _target = null;
-        }
-      });
+    Future<void> focusTarget() async {
+      if (scrolling != null) await scrolling;
+      WidgetsBinding.instance.scheduleFrame();
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted && generation == _generation && node.context != null) {
+        node.requestFocus();
+        _target = null;
+      }
     }
+
+    unawaited(focusTarget());
   }
 
   KeyEventResult _key(FocusNode node, KeyEvent event) {

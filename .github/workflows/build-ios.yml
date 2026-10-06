@@ -72,7 +72,9 @@ jobs:
         if: inputs.run_audit
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
-          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true test/python_sources_test.dart test/source_visibility_test.dart test/sources_test.dart test/profiles_test.dart test/live_player_screen_test.dart
+          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true test/python_sources_test.dart test/source_visibility_test.dart test/sources_test.dart test/profiles_test.dart test/live_player_screen_test.dart test/television_player_test.dart
+          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true test/television_test.dart --plain-name "remote grid reaches unbuilt rows, partial last row and pagination without touch"
+          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true test/television_test.dart --plain-name "episode grid initially focuses an offscreen saved episode"
       - name: Audit all Flutter tests
         if: inputs.run_audit
         continue-on-error: true
