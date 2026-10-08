@@ -72,8 +72,8 @@ jobs:
         run: |
           python3 -m unittest discover -s ../scripts -p 'test_*.py'
           go vet ./...
-          go test ./core -run 'TestCatpaw|TestImported|TestAttached|TestMaccms|TestCatalogRestore' -count=1
-          go test ./core -ldflags='-X duanjuapp/native/core.buildAllSources=true' -run 'TestCatpaw|TestImported|TestAttached|TestMaccms|TestCatalogRestore' -count=1
+          go test ./core -run 'TestPython|TestCatpaw|TestImported|TestAttached|TestMaccms|TestCatalogRestore' -count=1
+          go test ./core -ldflags='-X duanjuapp/native/core.buildAllSources=true' -run 'TestPython|TestCatpaw|TestImported|TestAttached|TestMaccms|TestCatalogRestore' -count=1
         working-directory: native
       - name: Verify source visibility and retirement in Flutter
         run: |
@@ -111,7 +111,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - name: Check Python import and permission regressions
-        if: inputs.run_audit
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
           flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true test/python_sources_test.dart test/source_visibility_test.dart test/sources_test.dart test/profiles_test.dart test/television_player_test.dart

@@ -999,6 +999,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     onPressed: _toggleSearch,
                   ),
+                  if (widget.repository.supportsSourceManagement)
+                    IconButton(
+                      key: const ValueKey('manage-sources'),
+                      tooltip: '站源管理',
+                      onPressed: _manageSources,
+                      icon: const Icon(Icons.dns_outlined),
+                    ),
                 ],
                 if (tab == 0 && !_showRecommendations)
                   RefreshAction(
@@ -1018,8 +1025,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       _openRankings();
                     } else if (value == 'selection') {
                       setState(() => _selectionMode = true);
-                    } else if (value == 'sources') {
-                      _manageSources();
                     } else if (value == 'settings') {
                       Navigator.push(
                         context,
@@ -1081,11 +1086,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                     ],
                     if (tab == 0 && compactActions) const PopupMenuDivider(),
-                    if (widget.repository.supportsSourceManagement)
-                      PopupMenuItem(
-                        value: 'sources',
-                        child: _menuLabel(Icons.dns_outlined, '站源管理'),
-                      ),
                     PopupMenuItem(
                       value: 'users',
                       child: _menuLabel(Icons.people_outline_rounded, '用户管理'),
