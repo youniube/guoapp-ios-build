@@ -23,14 +23,15 @@ output.mkdir(parents=True, exist_ok=True)
 artifacts = []
 
 if options.platform == 'android':
-    for abi in options.abi or ['arm64-v8a', 'armeabi-v7a', 'x86_64']:
+    for abi in options.abi or ['arm64-v8a', 'x86_64']:
         source = root / 'build' / 'app' / 'outputs' / 'flutter-apk' / f'app-{abi}-release.apk'
         if not source.is_file():
             raise SystemExit('缺少 APK：' + str(source))
         with zipfile.ZipFile(source) as archive:
             names = set(archive.namelist())
             required = [f'lib/{abi}/{library}' for library in
-                        ['libduanju_core.so', 'libflutter.so', 'libapp.so', 'libmpv.so', 'libffmpegkit.so']]
+                        ['libduanju_core.so', 'libpython3.14.so', 'libflutter.so', 'libapp.so', 'libmpv.so', 'libffmpegkit.so']]
+            required.append(f'assets/python-runtime/{abi}.zip')
             missing = set(required) - names
             if missing:
                 raise SystemExit('APK 缺少原生库：' + ', '.join(sorted(missing)))
@@ -41,7 +42,9 @@ else:
     bundle = root / 'build' / 'windows' / 'x64' / 'runner' / 'Release'
     required = ['zhenguojian.exe', 'duanju_core.dll', 'flutter_windows.dll', 'libffmpegkit.dll',
                 'libmpv-2.dll', 'msvcp140.dll', 'vcruntime140.dll',
-                'data/icudtl.dat', 'data/app.so']
+                'data/icudtl.dat', 'data/app.so', 'python/python314.dll', 'python/python314.zip',
+                'python/guo_spider.py', 'python/Lib/site-packages/requests/__init__.py',
+                'python/Lib/site-packages/lxml/__init__.py', 'python/Lib/site-packages/Crypto/__init__.py']
     missing = [name for name in required if not (bundle / name).is_file()]
     if missing:
         raise SystemExit('Windows 安装包缺少文件：' + ', '.join(missing))

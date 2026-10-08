@@ -25,7 +25,7 @@ EXCLUDED_DIRECTORIES = {
     '.ruff_cache', '.cache', '.venv', 'venv', 'build', 'dist', 'coverage',
     'node_modules', 'vendor', 'Pods', 'Carthage', 'DerivedData', '.swiftpm', 'xcuserdata',
     '.symlinks', 'ephemeral', 'jniLibs', 'CMakeFiles', 'sdk', 'android-sdk',
-    'flutter-sdk', 'ndk', 'toolchains',
+    'flutter-sdk', 'ndk', 'toolchains', 'python-runtime', 'python-sources',
 }
 EXCLUDED_NAMES = {
     'source_access.json',

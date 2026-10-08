@@ -113,6 +113,11 @@ import MediaPlayer
           slider.sendActions(for: .valueChanged)
           result(nil)
           return
+        case "pythonRuntime":
+          let home = Bundle.main.bundleURL.appendingPathComponent("python").path
+          let library = Bundle.main.bundleURL.appendingPathComponent("Frameworks/Python.framework/Python").path
+          result(["home": home, "library": library, "search": [home, home + "/lib/python3.14", home + "/lib/python3.14/lib-dynload", home + "/lib/python3.14/site-packages"]])
+          return
         case "deviceInfo":
           let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
           let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""

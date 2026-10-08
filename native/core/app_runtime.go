@@ -45,6 +45,9 @@ type Config struct {
 }
 
 type Downloader struct {
+	pythonMu              sync.Mutex
+	pythonManageMu        sync.Mutex
+	pythonHTTP            *pythonHTTPBridge
 	rankings              rankingCache
 	cfg                   Config
 	client                *http.Client
@@ -97,6 +100,11 @@ type nativeDrama struct {
 }
 
 type nativeInput struct {
+	Python           pythonRuntimeConfig     `json:"python"`
+	ScriptBody       string                  `json:"scriptBody"`
+	Filename         string                  `json:"filename"`
+	ScriptExtend     *string                 `json:"scriptExtend"`
+	ScriptName       string                  `json:"scriptName"`
 	LAN              json.RawMessage         `json:"lan"`
 	ExpectedVersions map[string]string       `json:"expectedVersions"`
 	SystemProxy      nativeSystemProxy       `json:"systemProxy"`
@@ -125,14 +133,15 @@ type nativeInput struct {
 }
 
 type nativeCatalogResult struct {
-	Items       []nativeDrama `json:"items"`
-	HasMore     bool          `json:"hasMore"`
-	Page        int           `json:"page"`
-	Warning     string        `json:"warning,omitempty"`
-	LocalSearch bool          `json:"localSearch"`
-	Fresh       bool          `json:"fresh"`
-	hongguo     *hongguoCatalogState
-	saveError   error
+	pythonRevision string
+	Items          []nativeDrama `json:"items"`
+	HasMore        bool          `json:"hasMore"`
+	Page           int           `json:"page"`
+	Warning        string        `json:"warning,omitempty"`
+	LocalSearch    bool          `json:"localSearch"`
+	Fresh          bool          `json:"fresh"`
+	hongguo        *hongguoCatalogState
+	saveError      error
 }
 
 type nativePlan struct {
@@ -285,6 +294,9 @@ func newNativeEngine(directory string) (*nativeEngine, error) {
 	engine.loadResourceSettings()
 	d.loadAttachedAccess()
 	d.loadRankingCache()
+	if err := d.loadPythonSources(); err != nil {
+		return nil, err
+	}
 	engine.loadCatalogCache()
 	engine.loadSourceRecords()
 	engine.covers = newNativeCoverCache(directory, d)
@@ -350,6 +362,7 @@ func nativeDispatch(input nativeInput) (any, error) {
 	}
 	nativeState.Lock()
 	if input.Action == "initialize" {
+		configurePythonRuntime(input.Python)
 		if nativeState.engine == nil {
 			engine, err := newNativeEngine(input.Directory)
 			if err != nil {
@@ -385,6 +398,12 @@ func nativeDispatch(input nativeInput) (any, error) {
 		ctx = work
 	}
 	switch input.Action {
+	case "pythonSources":
+		return map[string]any{"items": pythonSourceSnapshot()}, nil
+	case "importPythonSource":
+		return engine.importPythonSource(ctx, input)
+	case "managePythonSource":
+		return engine.managePythonSource(ctx, input)
 	case "liveChannels":
 		return map[string]any{"items": yspLiveChannels()}, nil
 	case "openLive":
@@ -537,6 +556,29 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	}
 	d := engine.downloader
 	result := nativeCatalogResult{Items: []nativeDrama{}, Page: page}
+	if isPythonSourceID(source) {
+		unlock, err := engine.lockSourceCatalog(ctx, source)
+		if err != nil {
+			return result, err
+		}
+		defer unlock()
+		result.pythonRevision = pythonSourceRevision(source)
+		items, more, err := d.fetchPythonCatalog(ctx, source, page, category, query)
+		if err != nil {
+			return result, err
+		}
+		if result.pythonRevision != pythonSourceRevision(source) || !pythonSourceRegistered(source, true) {
+			return result, context.Canceled
+		}
+		for _, item := range items {
+			result.Items = append(result.Items, nativeNormalize(item))
+		}
+		result.HasMore = more
+		if query == "" {
+			engine.saveCatalogCache(cacheKey, &result)
+		}
+		return result, nil
+	}
 	if query != "" && source == sourceHongguo {
 		entry, err := d.searchHongguoDramas(ctx, query)
 		if err != nil {
@@ -766,35 +808,40 @@ func (engine *nativeEngine) nativeDetail(ctx context.Context, drama nativeDrama)
 	var raw Drama
 	var chapters []Chapter
 	var err error
-	switch source {
-	case sourceHuangguoAI:
-		raw, chapters, err = engine.downloader.fetchHuangguoAIDetail(ctx, sourceID)
-	case sourceHuangguoVideo:
-		raw, chapters, err = engine.downloader.fetchHuangguoVideoDetail(ctx, sourceID)
-	case sourceCloudFront:
-		raw, chapters, err = engine.downloader.fetchLegacyDetail(ctx, sourceID)
-	case sourceHuangju:
-		raw, chapters, err = engine.downloader.fetchHuangjuDetail(ctx, sourceID)
-	case sourceYeguo:
-		raw, chapters, err = engine.downloader.fetchYeguoDetail(ctx, sourceID)
-
-	case sourceDSD:
-		raw, chapters, err = engine.downloader.fetchDSDDetail(ctx, sourceID)
-	case sourceSorani:
-		raw, chapters, err = engine.downloader.fetchSoraniDetail(ctx, sourceID)
-	case sourceGuipian:
-		raw, chapters, err = engine.downloader.fetchGuipianDetail(ctx, sourceID)
-	case sourceHanxiaoquan:
-		raw, chapters, err = engine.downloader.fetchHanxiaoquanDetail(ctx, sourceID)
+	switch {
+	case isPythonSourceID(source):
+		raw, chapters, err = engine.downloader.fetchPythonDetail(ctx, source, sourceID)
 	default:
-		if isMaccmsSource(source) {
-			raw, chapters, err = engine.downloader.fetchMaccmsDetail(ctx, source, sourceID)
-		} else if isJSONVideoSource(source) {
-			raw, chapters, err = engine.downloader.fetchJSONVideoDetail(ctx, source, sourceID, drama)
-		} else if isAttachedSource(source) {
-			raw, chapters, err = engine.downloader.fetchAttachedDetail(ctx, source, sourceID)
-		} else {
-			title, chapters, err = engine.downloader.GetHuangguoChapters(ctx, source, sourceID)
+		switch source {
+		case sourceHuangguoAI:
+			raw, chapters, err = engine.downloader.fetchHuangguoAIDetail(ctx, sourceID)
+		case sourceHuangguoVideo:
+			raw, chapters, err = engine.downloader.fetchHuangguoVideoDetail(ctx, sourceID)
+		case sourceCloudFront:
+			raw, chapters, err = engine.downloader.fetchLegacyDetail(ctx, sourceID)
+		case sourceHuangju:
+			raw, chapters, err = engine.downloader.fetchHuangjuDetail(ctx, sourceID)
+		case sourceYeguo:
+			raw, chapters, err = engine.downloader.fetchYeguoDetail(ctx, sourceID)
+
+		case sourceDSD:
+			raw, chapters, err = engine.downloader.fetchDSDDetail(ctx, sourceID)
+		case sourceSorani:
+			raw, chapters, err = engine.downloader.fetchSoraniDetail(ctx, sourceID)
+		case sourceGuipian:
+			raw, chapters, err = engine.downloader.fetchGuipianDetail(ctx, sourceID)
+		case sourceHanxiaoquan:
+			raw, chapters, err = engine.downloader.fetchHanxiaoquanDetail(ctx, sourceID)
+		default:
+			if isMaccmsSource(source) {
+				raw, chapters, err = engine.downloader.fetchMaccmsDetail(ctx, source, sourceID)
+			} else if isJSONVideoSource(source) {
+				raw, chapters, err = engine.downloader.fetchJSONVideoDetail(ctx, source, sourceID, drama)
+			} else if isAttachedSource(source) {
+				raw, chapters, err = engine.downloader.fetchAttachedDetail(ctx, source, sourceID)
+			} else {
+				title, chapters, err = engine.downloader.GetHuangguoChapters(ctx, source, sourceID)
+			}
 		}
 	}
 	if err != nil {

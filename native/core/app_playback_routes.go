@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sort"
 	"time"
@@ -28,6 +29,10 @@ func nativePlaybackChoices(media providerMedia, quality int) nativePlaybackChoic
 			continue
 		}
 		identity := option.URL + "\x00" + option.Referer + "\x00" + hex.EncodeToString(option.CENCKey) + "\x00" + hex.EncodeToString(option.HLSKey)
+		if option.credentials != nil && len(option.credentials.headers) > 0 {
+			headers, _ := json.Marshal(option.credentials.headers)
+			identity += "\x00" + string(headers)
+		}
 		if seen[identity] {
 			continue
 		}

@@ -104,6 +104,11 @@ class LocalStore extends ChangeNotifier {
     _epoch++;
   }
 
+  void refreshSources() {
+    _epoch++;
+    _notify();
+  }
+
   void _notify() {
     if (!_disposed) notifyListeners();
   }

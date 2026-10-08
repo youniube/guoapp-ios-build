@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:convert';
 
 import 'core_bridge.dart';
 import 'models.dart';
@@ -49,6 +50,12 @@ class CatalogBrowser {
       session.generation++;
     }
     return repository.cancelCatalog();
+  }
+
+  void invalidateSource(String source) {
+    _library.remove(source);
+    _sessions.clear();
+    _generation++;
   }
 
   void _remember(String source, Iterable<Drama> items) {
@@ -126,7 +133,9 @@ class CatalogBrowser {
         final name = categoryName(category.name);
         final choice = choices.putIfAbsent(
           name,
-          () => _CatalogChoice(CatalogCategory('category:$name', name)),
+          () => _CatalogChoice(
+            CatalogCategory('category:$name', name, filters: category.filters),
+          ),
         );
         choice.requests[source.id] = category.id;
       }
@@ -158,6 +167,7 @@ class CatalogBrowser {
     SourceGroup group, {
     String category = '',
     String query = '',
+    Map<String, String> filters = const {},
     bool more = false,
     bool force = false,
     bool useCache = false,
@@ -175,11 +185,28 @@ class CatalogBrowser {
     if (request != _generation) throw AppFailure('已取消加载');
     final choice = query.isEmpty ? _choice(group, category) : null;
     final requests = choice != null && !choice.category.local
-        ? choice.requests
+        ? Map<String, String>.from(choice.requests)
         : {for (final source in group.sources) source.id: ''};
+    if (filters.isNotEmpty && query.isEmpty) {
+      final sorted = Map.fromEntries(
+        filters.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+      );
+      for (final source in requests.keys.toList()) {
+        if (source.startsWith('py:')) {
+          final encoded = base64Url
+              .encode(
+                utf8.encode(
+                  jsonEncode({'category': requests[source], 'filters': sorted}),
+                ),
+              )
+              .replaceAll('=', '');
+          requests[source] = 'py-filter:$encoded';
+        }
+      }
+    }
     final key =
         '${group.sources.map((s) => s.id).join(',')}|'
-        '${choice?.category.local == false ? category : ''}|$query';
+        '${choice?.category.local == false ? category : ''}|$query|${requests.values.join(',')}';
     final session = _sessions.putIfAbsent(key, _CatalogSession.new);
     final generation = ++session.generation;
     final failures = <String, String>{};
@@ -199,7 +226,7 @@ class CatalogBrowser {
           if (index < row.length) items[row[index].id] = row[index];
         }
       }
-      if (choice != null) {
+      if (choice != null && filters.isEmpty) {
         for (final source in group.sources) {
           for (final item in _library[source.id]?.values ?? const <Drama>[]) {
             if (choice.category.local ||

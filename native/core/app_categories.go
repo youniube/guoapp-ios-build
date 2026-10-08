@@ -13,8 +13,9 @@ import (
 )
 
 type nativeCategory struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Filters []any  `json:"filters,omitempty"`
 }
 
 var nativeAICategories = []nativeCategory{
@@ -33,6 +34,13 @@ func nativeCatalogKey(source, category string) string {
 }
 
 func validNativeCategory(source, category string) bool {
+	if isPythonSourceID(source) {
+		if strings.HasPrefix(category, "py-filter:") {
+			id, _, err := pythonCatalogFilters(category)
+			return err == nil && validNativeCategory(source, id)
+		}
+		return len(category) <= 512 && !strings.ContainsAny(category, "|\x00\r\n")
+	}
 	if category == "" {
 		return true
 	}
@@ -83,6 +91,25 @@ func validNativeCategory(source, category string) bool {
 func (engine *nativeEngine) nativeCategories(ctx context.Context, source string, force bool) ([]nativeCategory, error) {
 	source = canonicalProviderSource(source)
 	all := []nativeCategory{{Name: "全部"}}
+	if isPythonSourceID(source) {
+		result, err := engine.downloader.pythonSourceCall(ctx, source, "categories", nil)
+		if err != nil {
+			return nil, err
+		}
+		rows, _ := result["categories"].([]any)
+		home, _ := result["home"].(map[string]any)
+		filters, _ := home["filters"].(map[string]any)
+		for _, raw := range rows {
+			if row, ok := raw.(map[string]any); ok {
+				id, name := nativeText(row["type_id"]), nativeText(row["type_name"])
+				if id != "" && name != "" && validNativeCategory(source, id) {
+					options, _ := filters[id].([]any)
+					all = append(all, nativeCategory{ID: id, Name: name, Filters: options})
+				}
+			}
+		}
+		return all, nil
+	}
 	switch source {
 	case sourceHongguo:
 		for _, genre := range hongguoAppGenres {

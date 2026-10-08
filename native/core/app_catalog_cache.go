@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -12,10 +13,11 @@ import (
 const nativeCatalogTTL = 15 * time.Minute
 
 type nativeCatalogState struct {
-	UpdatedAt time.Time `json:"updatedAt"`
-	Page      int       `json:"page"`
-	HasMore   bool      `json:"hasMore"`
-	Warning   string    `json:"warning,omitempty"`
+	PythonRevision string    `json:"pythonRevision,omitempty"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+	Page           int       `json:"page"`
+	HasMore        bool      `json:"hasMore"`
+	Warning        string    `json:"warning,omitempty"`
 }
 
 type nativeCatalogDisk struct {
@@ -81,7 +83,7 @@ func (engine *nativeEngine) loadCatalogCache() {
 func (engine *nativeEngine) filterKnownCatalogSources() {
 	known := func(key string) bool {
 		source, _, _ := strings.Cut(key, "|")
-		return isHuangguoProviderSource(source)
+		return isHuangguoProviderSource(source) && (!isPythonSourceID(source) || pythonSourceRegistered(source, false) && engine.catalogStates[key].PythonRevision == pythonSourceRevision(source))
 	}
 	for key := range engine.catalogs {
 		if !known(key) {
@@ -206,8 +208,13 @@ func nativeGenericCategory(category string) bool {
 func (engine *nativeEngine) saveCatalogCache(source string, result *nativeCatalogResult) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
+	provider, _, _ := strings.Cut(source, "|")
+	if isPythonSourceID(provider) && (result.pythonRevision != pythonSourceRevision(provider) || !pythonSourceRegistered(provider, true)) {
+		return context.Canceled
+	}
 	previous := engine.catalogs[source]
 	state := engine.catalogStates[source]
+	state.PythonRevision = result.pythonRevision
 	var items []nativeDrama
 	if result.Page == 1 {
 		items = result.Items
@@ -257,6 +264,11 @@ func (engine *nativeEngine) saveCatalogCache(source string, result *nativeCatalo
 	engine.catalogStates[source] = state
 	if base, _, categorized := strings.Cut(source, "|"); categorized {
 		engine.catalogs[base] = mergeNativeCatalog(engine.catalogs[base], items)
+		if isPythonSourceID(base) {
+			baseState := engine.catalogStates[base]
+			baseState.PythonRevision = result.pythonRevision
+			engine.catalogStates[base] = baseState
+		}
 	}
 	err := engine.writeCatalogDiskLocked()
 	result.saveError = err

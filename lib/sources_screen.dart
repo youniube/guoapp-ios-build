@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -6,6 +7,7 @@ import 'core_bridge.dart';
 import 'local_store.dart';
 import 'models.dart';
 import 'source_status.dart';
+import 'python_sources.dart';
 
 String sourceTimestamp(DateTime? value) {
   if (value == null) return '尚无记录';
@@ -41,11 +43,246 @@ class _SourcesScreenState extends State<SourcesScreen> {
   Timer? _timer;
   bool _polling = false;
   int _ticks = 0;
+  bool _importing = false;
+
+  Future<({String name, String extend})?> _pythonConfiguration(
+    String name,
+    String extend,
+  ) async {
+    final nameController = TextEditingController(text: name);
+    final extendController = TextEditingController(text: extend);
+    try {
+      return await showDialog<({String name, String extend})>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Python 站源配置'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    maxLength: 80,
+                    decoration: const InputDecoration(labelText: '站源名称'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: extendController,
+                    minLines: 3,
+                    maxLines: 8,
+                    decoration: const InputDecoration(
+                      labelText: '扩展参数（可留空）',
+                      helperText: '填写脚本需要的 JSON 或字符串参数',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (nameController.text.trim().isEmpty) return;
+                Navigator.pop(context, (
+                  name: nameController.text.trim(),
+                  extend: extendController.text,
+                ));
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      nameController.dispose();
+      extendController.dispose();
+    }
+  }
+
+  Future<void> _importPython({String source = ''}) async {
+    if (_importing || widget.store.locked || !widget.store.profile.admin) {
+      return;
+    }
+    setState(() => _importing = true);
+    try {
+      if (widget.store.preferences.getBool('pythonSourcesTrusted') != true) {
+        final accepted = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('导入 Python 站源'),
+            content: const Text(
+              '脚本会在本设备执行，并可使用文件内的 Token、Cookie 和签名私钥。请仅导入可信来源的 Spider 脚本；应用不会自动安装缺少的依赖。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('选择可信脚本'),
+              ),
+            ],
+          ),
+        );
+        if (accepted != true) return;
+        await widget.store.preferences.setBool('pythonSourcesTrusted', true);
+      }
+      final selected = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: ['py'],
+      );
+      if (selected == null) return;
+      final file = selected;
+      if ((await file.length() ?? 0) > 512 * 1024) {
+        throw AppFailure('脚本不能超过 512 KiB');
+      }
+      final bytes = <int>[];
+      await for (final chunk in file.readAsByteStream()) {
+        if (bytes.length + chunk.length > 512 * 1024) {
+          throw AppFailure('脚本不能超过 512 KiB');
+        }
+        bytes.addAll(chunk);
+      }
+      if (!mounted) return;
+      final previous = SourceSite.pythonSources
+          .where((entry) => entry.id == source)
+          .firstOrNull;
+      final configuration = await _pythonConfiguration(
+        previous?.name ??
+            file.name.replaceFirst(RegExp(r'\.py$', caseSensitive: false), ''),
+        previous?.extend ?? '',
+      );
+      if (configuration == null || !mounted) return;
+      await widget.repository.importPythonSource(
+        file.name,
+        bytes,
+        source: source,
+        extend: configuration.extend,
+        name: configuration.name,
+      );
+      _statuses.remove(source);
+      _errors.remove(source);
+      if (mounted) {
+        final message = source.isEmpty
+            ? 'Python 站源已导入，可浏览和搜索；播放状态需实际确认'
+            : '脚本已更新，站源标识和观看记录已保留';
+        final warning = widget.repository.pythonSourceWarning;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(warning.isEmpty ? message : '$message\n$warning'),
+          ),
+        );
+        await _refresh();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  Future<void> _managePython(PythonSourceInfo source, String command) async {
+    if (_importing) return;
+    if (command == 'update') {
+      await _importPython(source: source.id);
+      return;
+    }
+    ({String name, String extend})? configuration;
+    if (command == 'configure') {
+      configuration = await _pythonConfiguration(source.name, source.extend);
+      if (configuration == null || !mounted) return;
+    }
+    if (command == 'delete') {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('删除 ${source.name}？'),
+          content: const Text('将删除脚本及其私有授权、会话和目录缓存。收藏、观看记录及已下载文件保留。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('删除站源'),
+            ),
+          ],
+        ),
+      );
+      if (accepted != true) return;
+    }
+    if (!mounted) return;
+    setState(() => _importing = true);
+    try {
+      if (configuration != null) {
+        await widget.repository.configurePythonSource(
+          source.id,
+          extend: configuration.extend,
+          name: configuration.name,
+        );
+      } else {
+        await widget.repository.managePythonSource(source.id, command);
+      }
+      final warning = widget.repository.pythonSourceWarning;
+      if (mounted && warning.isNotEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(warning)));
+      }
+      _statuses.remove(source.id);
+      _errors.remove(source.id);
+      await _refresh();
+    } catch (error) {
+      try {
+        await widget.repository.pythonSources();
+      } catch (_) {}
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  Widget _pythonSourceCard(PythonSourceInfo source) => Card(
+    child: ListTile(
+      leading: Icon(source.enabled ? Icons.code : Icons.pause_circle_outline),
+      title: Text(source.name),
+      subtitle: Text('${source.filename} · ${source.enabled ? '已启用' : '已禁用'}'),
+      trailing: PopupMenuButton<String>(
+        enabled: !_importing,
+        onSelected: (command) => _managePython(source, command),
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'configure', child: Text('编辑名称和参数')),
+          const PopupMenuItem(value: 'update', child: Text('替换脚本')),
+          PopupMenuItem(
+            value: source.enabled ? 'disable' : 'enable',
+            child: Text(source.enabled ? '禁用' : '启用'),
+          ),
+          const PopupMenuItem(value: 'delete', child: Text('删除')),
+        ],
+      ),
+    ),
+  );
 
   @override
   void initState() {
     super.initState();
-    unawaited(_refresh());
+    unawaited(_initializeSources());
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       _ticks++;
       if (_statuses.values.any((status) => status.retryAt != null)) {
@@ -57,6 +294,21 @@ class _SourcesScreenState extends State<SourcesScreen> {
         unawaited(_refresh());
       }
     });
+  }
+
+  Future<void> _initializeSources() async {
+    if (widget.store.profile.admin && !widget.store.locked) {
+      try {
+        await widget.repository.pythonSources();
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(error.toString())));
+        }
+      }
+    }
+    if (mounted) await _refresh();
   }
 
   @override
@@ -161,12 +413,13 @@ class _SourcesScreenState extends State<SourcesScreen> {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.store,
     builder: (context, _) {
-      final sources = widget.store.sources.toList()
-        ..sort((a, b) {
-          final aFirst = a.id == widget.initialSource ? 0 : 1;
-          final bFirst = b.id == widget.initialSource ? 0 : 1;
-          return aFirst.compareTo(bFirst);
-        });
+      final sources = widget.store.sources.toList();
+      final initialIndex = sources.indexWhere(
+        (source) => source.id == widget.initialSource,
+      );
+      if (initialIndex > 0) {
+        sources.insert(0, sources.removeAt(initialIndex));
+      }
       final viewPaddingBottom = MediaQuery.viewPaddingOf(context).bottom;
       final paddingBottom = MediaQuery.paddingOf(context).bottom;
       final bottomInset = viewPaddingBottom > paddingBottom
@@ -182,6 +435,24 @@ class _SourcesScreenState extends State<SourcesScreen> {
               child: ListView(
                 padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
                 children: [
+                  if (widget.store.profile.admin && !widget.store.locked) ...[
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FilledButton.icon(
+                        onPressed: _importing ? null : () => _importPython(),
+                        icon: const Icon(Icons.file_open_outlined),
+                        label: Text(_importing ? '正在处理脚本…' : '导入 Python 站源'),
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        '导入兼容 Spider 协议的 .py 文件，文件内授权随脚本保留。缺少依赖或源站授权过期时会提示具体问题。',
+                      ),
+                    ),
+                    for (final source in SourceSite.pythonSources)
+                      _pythonSourceCard(source),
+                  ],
                   const Padding(
                     padding: EdgeInsets.only(bottom: 16),
                     child: Text(

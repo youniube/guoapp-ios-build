@@ -194,7 +194,7 @@ func nativeLANFingerprint(cert *x509.Certificate) string {
 func nativeLANValidateConfig(config nativeLANConfig) error {
 	if strings.TrimSpace(config.Name) == "" || len(config.Name) > 240 ||
 		len(config.User) > 240 || !nativeLANID.MatchString(config.Account) ||
-		len(config.Sources) > 32 ||
+		len(config.Sources) > 256 ||
 		(config.Kind != "phone" && config.Kind != "computer" && config.Kind != "tv") {
 		return errors.New("设备互联配置无效")
 	}

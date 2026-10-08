@@ -39,3 +39,6 @@ ios/Runner/GeneratedPluginRegistrant.*
 ios/DuanjuCore/*.xcframework/
 **/xcuserdata/
 source_access.json
+
+ios/PythonRuntime/*.xcframework/
+android/app/src/main/assets/python-runtime/

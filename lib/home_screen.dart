@@ -57,6 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   String _submittedQuery = '';
   final _categorySelections = <String, String>{};
+  final _pythonFilterSelections = <String, Map<String, String>>{};
   late final CatalogBrowser _browser;
   bool _searchVisible = false;
   bool _categoriesLoading = false;
@@ -161,9 +162,19 @@ class _HomeScreenState extends State<HomeScreen> {
   void _sourcesChanged() {
     if (!mounted) return;
     final visible = widget.store.sources;
-    final signature = visible.map((site) => site.id).join(',');
+    final signature = visible.map((site) => site.identity).join(',');
     if (signature == _sourceSignature) return;
     final wasEmpty = _sourceSignature.isEmpty;
+    final changedScripts = visible
+        .where(
+          (source) =>
+              source.python &&
+              !_sourceSignature.split(',').contains(source.identity),
+        )
+        .toList();
+    final scriptChanged = changedScripts.any(
+      (source) => source.id == _source.id,
+    );
     _sourceSignature = signature;
     if (visible.isEmpty) {
       setState(() {
@@ -175,6 +186,15 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     final allowed = visible.map((site) => site.id).toSet();
+    for (final source in changedScripts) {
+      _browser.invalidateSource(source.id);
+    }
+    if ((scriptChanged || _allSources) && allowed.contains(_source.id)) {
+      setState(() => _source = SourceSite.byId(_source.id));
+      unawaited(_load(force: true));
+      unawaited(_loadCategories());
+      return;
+    }
     if (!wasEmpty &&
         allowed.contains(_source.id) &&
         _source.id == widget.store.source) {
@@ -423,7 +443,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _scroll.addListener(_onCatalogScroll);
     _source = SourceSite.byId(widget.store.source);
     _allSources = widget.store.catalogView.allSources;
-    _sourceSignature = widget.store.sources.map((site) => site.id).join(',');
+    _sourceSignature = widget.store.sources
+        .map((site) => site.identity)
+        .join(',');
     _browser = CatalogBrowser(widget.repository);
     _updater = LibraryUpdater(
       widget.repository,
@@ -542,6 +564,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final result = await _browser.load(
         group,
         category: _category,
+        filters: _pythonFilterSelections['${group.id}|$_category'] ?? const {},
         query: query,
         more: more,
         useCache: useCache,
@@ -1284,6 +1307,20 @@ class _HomeScreenState extends State<HomeScreen> {
           key: ValueKey('filters-${_group.id}'),
           categories: _displayCategories,
           category: _displayCategory,
+          filters:
+              _displayCategories
+                  .where((entry) => entry.id == _displayCategory)
+                  .firstOrNull
+                  ?.filters ??
+              const [],
+          filterValues:
+              _pythonFilterSelections['${_group.id}|$_category'] ?? const {},
+          onFilters: (values) {
+            setState(
+              () => _pythonFilterSelections['${_group.id}|$_category'] = values,
+            );
+            unawaited(_load(force: true));
+          },
           error: _categoriesError,
           onCategory: _changeCategory,
           onRetry: () => _loadCategories(force: true),

@@ -25,6 +25,7 @@ environment.setdefault('GOSUMDB', 'off')
 flutter = shutil.which('flutter')
 if not flutter:
     raise SystemExit('请先将 Flutter SDK 的 bin 目录加入 PATH。')
+options.abi = options.abi or ['arm64-v8a', 'x86_64']
 abi_args = [item for abi in options.abi or [] for item in ['--abi', abi]]
 with china_mirror_environment(environment, options.cn_mirrors) as env, mirrored_pub_lockfile(root, env):
     if options.cn_mirrors:

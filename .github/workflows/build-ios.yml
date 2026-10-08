@@ -11,6 +11,10 @@ on:
         description: Embed the shared Huangguo legacy session from the repository secret
         type: boolean
         default: false
+      run_audit:
+        description: Run the requested code audit and Python source regressions
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,7 +30,7 @@ env:
 jobs:
   ios:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,6 +108,33 @@ jobs:
         with:
           name: player-feedback-ui-previews
           path: dist/diagnostics/player-feedback/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Check Python import and permission regressions
+        if: inputs.run_audit
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true test/python_sources_test.dart test/source_visibility_test.dart test/sources_test.dart test/profiles_test.dart test/television_player_test.dart
+      - name: Audit all Flutter tests
+        if: inputs.run_audit
+        continue-on-error: true
+        run: |
+          mkdir -p dist/diagnostics/code-audit
+          set +e
+          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true > dist/diagnostics/code-audit/flutter-default.log 2>&1
+          default_result=$?
+          flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true > dist/diagnostics/code-audit/flutter-all-sources.log 2>&1
+          all_sources_result=$?
+          printf '{"default":%s,"allSources":%s}\n' "$default_result" "$all_sources_result" > dist/diagnostics/code-audit/flutter-results.json
+          tail -n 10 dist/diagnostics/code-audit/flutter-default.log
+          tail -n 10 dist/diagnostics/code-audit/flutter-all-sources.log
+          if [[ "$default_result" != 0 || "$all_sources_result" != 0 ]]; then exit 1; fi
+      - name: Upload Flutter audit results
+        if: always() && inputs.run_audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-code-audit
+          path: dist/diagnostics/code-audit/
           if-no-files-found: ignore
           retention-days: 14
       - name: Upload dependency lockfile

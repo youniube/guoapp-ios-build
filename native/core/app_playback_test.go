@@ -71,13 +71,13 @@ func TestNativeStreamLateResolutionPreservesCurrentSession(t *testing.T) {
 	}
 }
 
-func TestNativeHLSExtensionlessPlaylistsAndRedirectBase(t *testing.T) {
+func TestNativeHLSMIMEPlaylistsAndRedirectBase(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/root":
 			http.Redirect(w, r, "/folder/master", http.StatusFound)
 		case "/folder/master":
-			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			io.WriteString(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=200000\nvariant?signature=test\n")
 		case "/folder/variant":
 			if r.URL.Query().Get("signature") != "test" {

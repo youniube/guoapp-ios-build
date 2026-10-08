@@ -135,6 +135,9 @@ func TestRankingCacheAndStaleRecovery(t *testing.T) {
 			return rankingHTTPResponse(request, 503, "temporarily unavailable"), nil
 		}
 		page, _ := strconv.Atoi(request.URL.Query().Get("page"))
+		if page == 0 {
+			page = 1
+		}
 		return rankingHTTPResponse(request, 200, rankingFixture(board, page, rankingRows(page))), nil
 	})
 	ctx := context.Background()
