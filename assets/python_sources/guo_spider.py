@@ -543,7 +543,11 @@ def _dispatch(request):
         return _catalog_result(value, request, metadata)
     if operation == "detail":
         value = _object(_call(instance, "detailContent", [[request["id"]]]))
-        if not value.get('list'):
+        rows = value.get('list') or []
+        playable = any('$' in str(row.get('vod_play_url', '')) or
+                       str(row.get('vod_play_url', '')).startswith(('http://', 'https://'))
+                       for row in rows if isinstance(row, dict))
+        if not rows or (_current().get('_apiFailure') and not playable):
             _empty_result_failure()
         return value
     if operation == "play":

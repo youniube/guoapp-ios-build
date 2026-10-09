@@ -163,6 +163,18 @@ class Spider(Base):
         self.assertIn('超时', result['error'])
         self.assertLess(time.monotonic() - started, 2)
 
+    def test_api_failure_placeholder_is_not_reported_as_playable_detail(self):
+        self.source('''
+    def detailContent(self, ids):
+        import guo_spider_protocol_test as runner
+        runner._current()['_apiFailure'] = '站源接口返回状态 1004（HTTP 200）'
+        return {'list':[{'vod_id':ids[0], 'vod_name':'Synthetic failure', 'vod_play_url':'failure#err'}]}
+''')
+        with patch.dict(sys.modules, {'guo_spider_protocol_test':self.runner}):
+            result = self.call('detail', id='synthetic')
+        self.assertFalse(result['ok'])
+        self.assertIn('1004', result['error'])
+
 
 if __name__ == '__main__':
     unittest.main()
