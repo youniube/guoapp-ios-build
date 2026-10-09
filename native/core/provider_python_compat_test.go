@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -168,7 +171,7 @@ class Spider(Base):
 	}
 	first := pythonSourceSnapshot()[0]
 	rows, more, err := engine.downloader.fetchPythonCatalog(ctx, first.ID, 1, "", "")
-	if err != nil || len(rows) != 1 || !more || rows[0].Title != "First" {
+	if err != nil || len(rows) != 1 || !more || rows[0].Title != "First2026" {
 		t.Fatal("empty home or unknown pagination failed", rows, more, err)
 	}
 	if rows, more, err = engine.downloader.fetchPythonCatalog(ctx, first.ID, 2, "", ""); err != nil || len(rows) != 1 || !more {
@@ -210,5 +213,91 @@ class Spider(Base):
 		if _, err := engine.managePythonSource(ctx, nativeInput{Source: item.ID, Command: "delete"}); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestPythonNetworkErrorsDoNotExposeRequestSecrets(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want string
+	}{
+		{context.DeadlineExceeded, "站源请求超时"},
+		{&net.DNSError{Err: "synthetic", Name: "fixture.invalid"}, "站源域名解析失败"},
+		{io.EOF, "站源连接被提前关闭"},
+		{errors.New("https://user:private@fixture.invalid/request?token=private"), "站源连接失败"},
+	} {
+		message := pythonNetworkError(test.err, "fixture.invalid")
+		if !strings.Contains(message, test.want) || !strings.Contains(message, "fixture.invalid") || strings.Contains(message, "private") {
+			t.Fatal("network diagnosis missing or exposing request data", message)
+		}
+	}
+}
+
+func TestPythonRuntimeFailedHomeRecoversAndHealthRecordsHTTP(t *testing.T) {
+	pythonRuntimeForTest(t)
+	available := false
+	apiStatus := 200
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Hostname() != "fixture.invalid" {
+			t.Fatal("unexpected external request")
+		}
+		if !available {
+			return nil, &net.DNSError{Err: "synthetic", Name: request.URL.Hostname()}
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"code":%d,"ok":true}`, apiStatus))), Request: request}, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	body := []byte(`from base.spider import Spider as Base
+import urllib.request, ssl
+class Spider(Base):
+    def init(self, extend=''):
+        self.session = 'synthetic-signing-key'
+    def homeContent(self, filter):
+        try:
+            urllib.request.urlopen('https://fixture.invalid/config', context=ssl._create_unverified_context()).read()
+            return {'class':[{'type_id':'demo','type_name':'Synthetic'}], 'list':[{'vod_id':'home','vod_name':'Synthetic'}]}
+        except Exception:
+            return {'class':[], 'list':[]}
+    def categoryContent(self, tid, pg, filter, extend):
+        try:
+            data = self.fetch('https://fixture.invalid/catalog').json()
+            if data.get('code') != 200: return {'list':[]}
+            return {'list':[{'vod_id':str(pg),'vod_name':'Synthetic'}], 'page':int(pg), 'pagecount':4}
+        except Exception:
+            return {'list':[]}
+    def detailContent(self, ids): return {'list':[]}
+    def playerContent(self, flag, id, vipFlags): return {'url':''}
+`)
+	item, err := pythonImportForTest(engine, ctx, body, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.checkSource(ctx, item.ID, nativeDrama{}, false); err == nil || !strings.Contains(err.Error(), "域名解析失败") {
+		t.Fatal("swallowed request failure was presented as an empty reachable catalog", err)
+	}
+	available = true
+	categories, err := engine.nativeCategories(ctx, item.ID, true)
+	if err != nil || len(categories) != 2 {
+		t.Fatal("failed home metadata did not recover", categories, err)
+	}
+	if err := engine.checkSource(ctx, item.ID, nativeDrama{}, false); err != nil {
+		t.Fatal("recovered request failed", err)
+	}
+	record := engine.sourceRecords[item.ID]
+	if record.Health == nil || len(record.Health.Steps) != 1 || record.Health.Steps[0].HTTPStatus != 200 || record.Health.Steps[0].Host != "fixture.invalid" {
+		t.Fatal("Python source health lost the real HTTP response", record.Health)
+	}
+	rows, more, err := engine.downloader.fetchPythonCatalog(ctx, item.ID, 2, "", "")
+	if err != nil || len(rows) != 1 || !more {
+		t.Fatal("home recommendations replaced a pageable category", rows, more, err)
+	}
+	apiStatus = 1004
+	if _, _, err := engine.downloader.fetchPythonCatalog(ctx, item.ID, 1, "demo", ""); err == nil || !strings.Contains(err.Error(), "1004") {
+		t.Fatal("API verification failure was hidden by HTTP 200", err)
+	}
+	if _, err := engine.managePythonSource(ctx, nativeInput{Source: item.ID, Command: "delete"}); err != nil {
+		t.Fatal("script signing session interfered with cleanup", err)
 	}
 }

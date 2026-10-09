@@ -92,7 +92,7 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 	source = canonicalProviderSource(source)
 	all := []nativeCategory{{Name: "全部"}}
 	if isPythonSourceID(source) {
-		result, err := engine.downloader.pythonSourceCall(ctx, source, "categories", nil)
+		result, err := engine.downloader.pythonSourceCall(ctx, source, "categories", map[string]any{"force": force})
 		if err != nil {
 			return nil, err
 		}

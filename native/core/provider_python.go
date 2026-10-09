@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -650,10 +651,12 @@ func (d *Downloader) servePythonHTTP(bridge *pythonHTTPBridge, w http.ResponseWr
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		fail("站源网络请求失败或超时")
+		observeSourceFailure(ctx, request.URL.Hostname())
+		fail(pythonNetworkError(err, request.URL.Hostname()))
 		return
 	}
 	defer response.Body.Close()
+	observeSourceResponse(ctx, response)
 	body, err = io.ReadAll(io.LimitReader(response.Body, providerMaxBodyBytes+1))
 	if err != nil || len(body) > providerMaxBodyBytes {
 		fail("站源响应读取失败或超过 20 MiB")
@@ -667,6 +670,32 @@ func (d *Downloader) servePythonHTTP(bridge *pythonHTTPBridge, w http.ResponseWr
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "status": response.StatusCode, "reason": http.StatusText(response.StatusCode), "url": response.Request.URL.String(), "headers": headers, "headerValues": response.Header, "body": base64.StdEncoding.EncodeToString(body), "cookies": cookies})
 }
 
+func pythonNetworkError(err error, host string) string {
+	message := "站源连接失败"
+	var dns *net.DNSError
+	var certificate *tls.CertificateVerificationError
+	var authority x509.UnknownAuthorityError
+	var network net.Error
+	switch {
+	case errors.Is(err, context.Canceled):
+		message = "站源请求已取消"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &network) && network.Timeout():
+		message = "站源请求超时"
+	case errors.As(err, &dns):
+		message = "站源域名解析失败"
+	case errors.As(err, &certificate), errors.As(err, &authority):
+		message = "站源 TLS 证书验证失败"
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		message = "站源连接被提前关闭"
+	case strings.Contains(err.Error(), "系统使用自动代理脚本"):
+		message = "当前自动代理脚本无法用于站源请求"
+	}
+	if host != "" {
+		message += "（" + host + "）"
+	}
+	return message
+}
+
 func pythonDrama(source string, row map[string]any) Drama {
 	id, title := nativeText(row["vod_id"]), nativeText(row["vod_name"])
 	if id == "" || title == "" {
@@ -675,12 +704,13 @@ func pythonDrama(source string, row map[string]any) Drama {
 	return Drama{ID: providerDramaID(source, id), Source: source, SourceID: id, Title: title, Name: title, Desc: cleanText(nativeText(row["vod_content"])), Cover: nativeText(row["vod_pic"]), CategoryName: nativeText(row["type_name"]), Remark: nativeText(row["vod_remarks"])}
 }
 
-func (d *Downloader) fetchPythonCatalog(ctx context.Context, source string, page int, category, query string) ([]Drama, bool, error) {
+func (d *Downloader) fetchPythonCatalog(ctx context.Context, source string, page int, category, query string, refresh ...bool) ([]Drama, bool, error) {
 	category, filters, err := pythonCatalogFilters(category)
 	if err != nil {
 		return nil, false, err
 	}
-	result, err := d.pythonSourceCall(ctx, source, "catalog", map[string]any{"page": page, "category": category, "query": query, "filters": filters})
+	force := len(refresh) > 0 && refresh[0] && page == 1
+	result, err := d.pythonSourceCall(ctx, source, "catalog", map[string]any{"page": page, "category": category, "query": query, "filters": filters, "force": force})
 	if err != nil {
 		return nil, false, err
 	}

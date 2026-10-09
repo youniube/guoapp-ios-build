@@ -37,6 +37,16 @@ type sourceResponseTrace struct {
 
 type sourceTraceKey struct{}
 
+func observeSourceFailure(ctx context.Context, host string) {
+	trace, _ := ctx.Value(sourceTraceKey{}).(*sourceResponseTrace)
+	if trace == nil {
+		return
+	}
+	trace.mu.Lock()
+	trace.last = nativeHealthStep{Host: host}
+	trace.mu.Unlock()
+}
+
 func observeSourceResponse(ctx context.Context, response *http.Response) {
 	trace, _ := ctx.Value(sourceTraceKey{}).(*sourceResponseTrace)
 	if trace == nil || response == nil {
@@ -109,7 +119,16 @@ func (engine *nativeEngine) checkSource(ctx context.Context, source string, sele
 			err = errors.New(page.Warning)
 		}
 		if err == nil && len(page.Items) == 0 {
-			err = errors.New("入口可达，但没有解析到有效剧集")
+			trace.mu.Lock()
+			status := trace.last.HTTPStatus
+			trace.mu.Unlock()
+			if status > 0 {
+				err = fmt.Errorf("站源返回 HTTP %d，但没有解析到有效剧集", status)
+			} else if isPythonSourceID(source) {
+				err = errors.New("脚本返回空目录，尚未取得有效的 HTTP 响应")
+			} else {
+				err = errors.New("入口可达，但没有解析到有效剧集")
+			}
 		}
 		return fmt.Sprintf("已解析 %d 部剧", len(page.Items)), err
 	}) || !playback {

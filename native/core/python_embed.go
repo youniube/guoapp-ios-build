@@ -105,7 +105,7 @@ func callPython(ctx context.Context, request map[string]any) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
-	code := C.CString("try:\n import guo_spider\n _guo_result = guo_spider.dispatch_base64('" + base64.StdEncoding.EncodeToString(body) + "')\nexcept BaseException:\n _guo_result = '{\"ok\":false,\"error\":\"Python 运行资源加载失败\"}'")
+	code := C.CString("try:\n import guo_spider\n _guo_result = guo_spider.dispatch_base64('" + base64.StdEncoding.EncodeToString(body) + "')\nexcept BaseException as _guo_failure:\n import json\n _guo_message = 'Python 运行资源加载失败：' + type(_guo_failure).__name__\n if isinstance(_guo_failure, ModuleNotFoundError):\n  _guo_message += '（' + str(_guo_failure.name or '未知模块') + '）'\n _guo_result = json.dumps({'ok':False,'error':_guo_message})")
 	output := C.guo_python_execute(code)
 	C.free(unsafe.Pointer(code))
 	if output == nil {
@@ -113,14 +113,24 @@ func callPython(ctx context.Context, request map[string]any) (map[string]any, er
 	}
 	defer C.free(unsafe.Pointer(output))
 	var envelope struct {
-		OK    bool           `json:"ok"`
-		Data  map[string]any `json:"data"`
-		Error string         `json:"error"`
+		OK      bool           `json:"ok"`
+		Data    map[string]any `json:"data"`
+		Error   string         `json:"error"`
+		Network struct {
+			Host   string `json:"host"`
+			Status int    `json:"status"`
+		} `json:"network"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(C.GoString(output)))
 	decoder.UseNumber()
 	if err := decoder.Decode(&envelope); err != nil {
 		return nil, errors.New("Python 返回的数据格式无效")
+	}
+	if trace, _ := ctx.Value(sourceTraceKey{}).(*sourceResponseTrace); trace != nil && envelope.Network.Host != "" {
+		trace.mu.Lock()
+		trace.last.Host = envelope.Network.Host
+		trace.last.HTTPStatus = envelope.Network.Status
+		trace.mu.Unlock()
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

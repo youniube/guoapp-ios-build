@@ -2,6 +2,7 @@ import ast
 import base64
 import contextlib
 import email.message
+import gzip
 import http.client
 import hashlib
 import inspect
@@ -13,6 +14,7 @@ import re
 import sys
 import ssl
 import threading
+import tempfile
 import time
 import tokenize
 import types
@@ -24,10 +26,15 @@ _urlopen = urllib.request.urlopen
 _http_connection = http.client.HTTPConnection
 _https_connection = http.client.HTTPSConnection
 _thread_start = threading.Thread.start
+_gettempdir = tempfile.gettempdir
 
 
 def _current():
     return getattr(_context, 'request', {})
+
+
+def _temporary_directory():
+    return _current().get('storage') or _gettempdir()
 
 
 class DiscardOutput:
@@ -75,7 +82,24 @@ class NetworkResponse(io.BytesIO):
 
 
 def _urllib_open(url, data=None, timeout=20, **kwargs):
-    return _urlopen(url, data=data, timeout=timeout, **kwargs)
+    address = url.full_url if isinstance(url, urllib.request.Request) else str(url)
+    _current()['_network'] = {'host': urllib.parse.urlparse(address).hostname or '', 'status': 0}
+    try:
+        return _urlopen(url, data=data, timeout=timeout, **kwargs)
+    except Exception as error:
+        _network_failure(address, error, 'urllib')
+        raise
+
+
+def _network_failure(address, error, stage):
+    current = _current()
+    previous = current.get('_network', {})
+    message = str(error) if isinstance(error, ScriptFailure) else stage + ' 请求失败：' + type(error).__name__
+    status = getattr(error, 'code', 0) or previous.get('status', 0)
+    if status >= 400:
+        message = '站源返回 HTTP ' + str(status)
+    current['_network'] = {'host': urllib.parse.urlparse(address).hostname or '',
+                           'status': status, 'error': message}
 
 
 class BridgeHTTPConnection(_http_connection):
@@ -158,9 +182,12 @@ def _network(prepared, **kwargs):
     if isinstance(timeout, tuple):
         timeout = max(value or 20 for value in timeout)
     current = _current()
+    current['_network'] = {'host': urllib.parse.urlparse(prepared.url).hostname or '', 'status': 0}
     remaining = current.get('deadline', time.time() + 60) - time.time()
     if remaining <= 0:
-        raise TimeoutError()
+        error = ScriptFailure('脚本运行超时')
+        _network_failure(prepared.url, error, 'network')
+        raise error
     timeout = max(.1, min(float(timeout), 30, remaining))
     body = prepared.body or b""
     if isinstance(body, str):
@@ -177,12 +204,18 @@ def _network(prepared, **kwargs):
     try:
         connection.request('POST', endpoint.path, body=payload, headers={'Content-Type': 'application/json'})
         envelope = json.loads(connection.getresponse().read())
-    except Exception:
-        raise ScriptFailure("站源网络请求失败或超时") from None
+    except Exception as error:
+        failure = ScriptFailure('Python 网络桥接失败：' + type(error).__name__)
+        _network_failure(prepared.url, failure, 'bridge')
+        raise failure from None
     finally:
         connection.close()
     if not envelope.get("ok"):
-        raise ScriptFailure(envelope.get("error", "站源请求失败"))
+        error = ScriptFailure(envelope.get("error", "站源请求失败"))
+        _network_failure(prepared.url, error, 'network')
+        raise error
+    current['_network'] = {'host': urllib.parse.urlparse(envelope['url']).hostname or '',
+                           'status': envelope['status']}
     response = requests.Response()
     response.status_code = envelope["status"]
     response.reason = envelope.get('reason', '')
@@ -195,6 +228,19 @@ def _network(prepared, **kwargs):
                                        status=response.status_code, preload_content=False)
     response._content = response.raw.read(decode_content=kwargs.get('decode_content', True))
     response._content_consumed = True
+    if 'json' in response.headers.get('Content-Type', '').lower() and len(response.content) <= 1024 * 1024:
+        try:
+            content = response.content
+            if content.startswith(b'\x1f\x8b'):
+                content = gzip.decompress(content)
+            value = json.loads(content)
+            code = value.get('code') if isinstance(value, dict) else None
+            if isinstance(code, int):
+                current['_network']['apiCode'] = code
+                if code == 1004:
+                    current['_apiFailure'] = '站源接口返回状态 1004（HTTP ' + str(response.status_code) + '）'
+        except (ValueError, OSError, EOFError):
+            pass
     for cookie in envelope.get("cookies", []):
         response.cookies.set(cookie["name"], cookie["value"], domain=cookie["domain"], path=cookie["path"])
     return response
@@ -209,7 +255,7 @@ def _send(session, prepared, **kwargs):
 class Spider:
     def __init__(self):
         import requests
-        self.session = requests.Session()
+        self._http_session = self.session = requests.Session()
         self._initialize_cache()
 
     def _initialize_cache(self):
@@ -223,15 +269,23 @@ class Spider:
             pass
 
     def fetch(self, url, headers=None, **kwargs):
-        import requests
         kwargs.setdefault("timeout", 20)
         if headers is not None:
             kwargs['headers'] = headers
-        return getattr(self, 'session', requests.Session()).request(kwargs.pop('method', 'GET'), url, **kwargs)
+        return self._request_session().request(kwargs.pop('method', 'GET'), url, **kwargs)
+
+    def _request_session(self):
+        import requests
+        session = getattr(self, 'session', None)
+        if isinstance(session, requests.Session):
+            return session
+        if not hasattr(self, '_http_session'):
+            self._http_session = requests.Session()
+        return self._http_session
 
     def post(self, url, **kwargs):
         kwargs.setdefault("timeout", 20)
-        return self.session.post(url, **kwargs)
+        return self._request_session().post(url, **kwargs)
 
     def getCache(self, key):
         with self._cache_lock:
@@ -270,7 +324,10 @@ class Spider:
         pass
 
     def destroy(self):
-        self.session.close()
+        for name in ('session', '_http_session'):
+            close = getattr(getattr(self, name, None), 'close', None)
+            if callable(close):
+                close()
 
 
 _base = types.ModuleType("base")
@@ -334,18 +391,53 @@ def _load(request):
             if not callable(getattr(instance, name, None)):
                 raise ScriptFailure("脚本缺少方法：" + name)
         _call(instance, "init", [request.get("extend", "")])
-        home = _object(_call(instance, "homeContent", [True]))
-        if not isinstance(home.get("class", []), list):
-            raise ScriptFailure("脚本分类返回格式无效")
         name = _call(instance, "getName", []) if callable(getattr(instance, "getName", None)) else ""
         metadata = {"name": str(name or request.get("name", "Python 站源"))[:80],
-                    "categories": home.get("class", []), "home": home,
                     "search": callable(getattr(instance, "searchContent", None))}
+        _refresh_home(instance, metadata)
         _instances[key] = (instance, metadata, module.__name__)
         return _instances[key]
     except BaseException:
         sys.modules.pop(module.__name__, None)
         raise
+
+
+def _refresh_home(instance, metadata):
+    _current().pop('_scriptFailure', None)
+    home = _object(_call(instance, 'homeContent', [True]))
+    if not isinstance(home.get('class', []), list):
+        raise ScriptFailure('脚本分类返回格式无效')
+    metadata.update(categories=home.get('class', []), home=home,
+                    _home_request=_current().get('network'))
+
+
+def _empty_result_failure():
+    network = _current().get('_network', {})
+    if network.get('error'):
+        raise ScriptFailure(network['error'])
+    if network.get('status', 0) >= 400:
+        raise ScriptFailure('站源返回 HTTP ' + str(network['status']))
+    if _current().get('_apiFailure'):
+        raise ScriptFailure(_current()['_apiFailure'])
+    failure = _current().get('_scriptFailure')
+    if failure:
+        raise ScriptFailure('脚本返回空结果：' + failure['kind'] + '，脚本第 ' + str(failure['line']) + ' 行')
+
+
+def _category_filters(metadata, category, selection):
+    filters = {}
+    definitions = metadata.get('home', {}).get('filters', {}).get(category, [])
+    for option in definitions:
+        if not isinstance(option, dict) or not option.get('key'):
+            continue
+        values = option.get('value') or []
+        default = option.get('init')
+        if default is None and values and isinstance(values[0], dict):
+            default = values[0].get('v', '')
+        if default is not None:
+            filters[str(option['key'])] = str(default)
+    filters.update(selection or {})
+    return filters
 
 
 def _drop(key):
@@ -389,6 +481,7 @@ def _catalog_result(value, request, metadata):
     if len(history) > 64:
         history.pop(next(iter(history)))
     if not rows:
+        _empty_result_failure()
         more = False
     elif 'hasMore' in value:
         more = value['hasMore'] is True
@@ -411,6 +504,7 @@ def _dispatch(request):
     http.client.HTTPConnection = BridgeHTTPConnection
     http.client.HTTPSConnection = BridgeHTTPSConnection
     threading.Thread.start = _start_thread
+    tempfile.gettempdir = _temporary_directory
     _patch_crypto_frameworks()
     sys.dont_write_bytecode = True
     _context.request = request
@@ -419,26 +513,44 @@ def _dispatch(request):
         _drop(request["instance"])
         return {}
     instance, metadata, _ = _load(request)
-    if operation in ("inspect", "categories"):
+    if operation == 'inspect':
+        return metadata
+    _current().pop('_scriptFailure', None)
+    if operation in ('categories', 'catalog') and not request.get('query'):
+        if (request.get('force') or not metadata['categories']) and metadata.get('_home_request') != request.get('network'):
+            _refresh_home(instance, metadata)
+    if operation == 'categories':
+        if not metadata['categories'] and not metadata['home'].get('list'):
+            _empty_result_failure()
         return metadata
     if operation == "catalog":
         if request.get("query"):
             return _catalog_result(_call(instance, "searchContent", [request["query"], False, str(request["page"])]), request, metadata)
         category = request.get("category", "")
         if not category:
-            if request["page"] == 1 and callable(getattr(instance, "homeVideoContent", None)):
-                value = _object(_call(instance, "homeVideoContent", [False]))
-                if value.get('list'):
-                    value.setdefault('pagecount', 1)
-                    return _catalog_result(value, request, metadata)
             categories = metadata["categories"]
             category = str(categories[0].get("type_id", "")) if categories else ""
-        filters = request.get('filters') or {}
-        return _catalog_result(_call(instance, "categoryContent", [category, str(request["page"]), bool(filters), filters]), request, metadata)
+        filters = _category_filters(metadata, category, request.get('filters'))
+        value = _object(_call(instance, "categoryContent", [category, str(request["page"]), bool(filters), filters]))
+        if not value.get('list') and not request.get('category') and request['page'] == 1:
+            home = metadata['home']
+            if home.get('list'):
+                value = dict(home, pagecount=1)
+            elif callable(getattr(instance, 'homeVideoContent', None)):
+                fallback = _object(_call(instance, 'homeVideoContent', [False]))
+                if fallback.get('list'):
+                    value = dict(fallback, pagecount=1)
+        return _catalog_result(value, request, metadata)
     if operation == "detail":
-        return _object(_call(instance, "detailContent", [[request["id"]]]))
+        value = _object(_call(instance, "detailContent", [[request["id"]]]))
+        if not value.get('list'):
+            _empty_result_failure()
+        return value
     if operation == "play":
-        return _object(_call(instance, "playerContent", [request["flag"], request["id"], []]))
+        value = _object(_call(instance, "playerContent", [request["flag"], request["id"], []]))
+        if not value.get('url'):
+            _empty_result_failure()
+        return value
     if operation == "proxy":
         value = _call(instance, "localProxy", [request["params"]])
         if not isinstance(value, (tuple, list)) or len(value) < 3:
@@ -465,10 +577,13 @@ def dispatch_base64(encoded):
     def trace(frame, event, arg):
         nonlocal ticks
         ticks += 1
-        if time.time() > deadline:
-            raise TimeoutError()
-        if ticks % 64 == 0 and os.path.exists(request.get('cancelFile', '')):
-            raise TimeoutError()
+        if event == 'exception' and frame.f_code.co_filename == 'imported_source.py':
+            kind = arg[0]
+            if kind not in (StopIteration, StopAsyncIteration, GeneratorExit):
+                request['_scriptFailure'] = {'kind': kind.__name__, 'line': frame.f_lineno}
+        if ticks % 1024 == 0:
+            if time.time() > deadline or os.path.exists(request.get('cancelFile', '')):
+                raise TimeoutError()
         return trace
 
     previous = sys.gettrace()
@@ -476,7 +591,7 @@ def dispatch_base64(encoded):
         sys.settrace(trace)
         with contextlib.redirect_stdout(DiscardOutput()), contextlib.redirect_stderr(DiscardOutput()):
             data = _dispatch(request)
-        return json.dumps({"ok": True, "data": data}, ensure_ascii=False)
+        return json.dumps({"ok": True, "data": data, 'network': request.get('_network', {})}, ensure_ascii=False)
     except BaseException as error:
         sys.settrace(previous)
         if isinstance(error, ScriptFailure):
@@ -494,6 +609,7 @@ def dispatch_base64(encoded):
                 if traceback.tb_frame.f_code.co_filename == "imported_source.py":
                     message += "，脚本第 " + str(traceback.tb_lineno) + " 行"
                 traceback = traceback.tb_next
-        return json.dumps({"ok": False, "error": message}, ensure_ascii=False)
+        return json.dumps({"ok": False, "error": message, 'network': request.get('_network', {})}, ensure_ascii=False)
     finally:
         sys.settrace(previous)
+        _context.request = {}

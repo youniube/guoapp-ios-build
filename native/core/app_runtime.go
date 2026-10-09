@@ -563,7 +563,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		}
 		defer unlock()
 		result.pythonRevision = pythonSourceRevision(source)
-		items, more, err := d.fetchPythonCatalog(ctx, source, page, category, query)
+		items, more, err := d.fetchPythonCatalog(ctx, source, page, category, query, input.Force)
 		if err != nil {
 			return result, err
 		}
